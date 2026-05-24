@@ -21,3 +21,6 @@ download/
 
 # Claude Code workspace
 .claude/
+
+# Lokale Arbeitsdokumente
+docs/
