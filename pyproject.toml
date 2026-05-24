@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "music-sync"
+version = "0.1.0"
+description = "Analyze local music library and download missing songs from YouTube Music"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "ytmusicapi>=1.7.0",
+    "yt-dlp>=2024.10.0",
+    "yt-dlp-ejs>=0.2.0",
+    "bgutil-ytdlp-pot-provider>=1.2.0",
+    "mutagen>=1.47.0",
+    "click>=8.1.0",
+    "rich>=13.7.0",
+    "PyYAML>=6.0",
+    "rapidfuzz>=3.6.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+music-sync = "music_sync.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["music_sync*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

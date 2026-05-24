@@ -1,0 +1,52 @@
+# Music-Sync Configuration Example
+# Copy to config.yaml and adjust to your environment.
+
+# Pfade
+music_dir: /home/johncena/Musik
+download_dir: /home/johncena/Musik
+
+# Optional: YouTube Music Premium Cookies
+# cookies_file: /home/johncena/.config/music-sync/cookies.txt
+
+# Optional: bgutil PO-Token-Provider (für authentischere Requests an YouTube)
+# Lokal:           http://127.0.0.1:4416
+# Docker-Compose:  http://pot-provider:4416
+# pot_provider_url: http://127.0.0.1:4416
+
+# Verhalten
+min_free_space_mb: 500
+fuzzy_match_threshold: 85
+log_level: INFO
+
+# Substrings die einen Song zum Skip führen (Studio-Only Filter)
+filter_keywords:
+  - "(Live)"
+  - "(Acoustic)"
+  - "(Remix)"
+  - "(Cover)"
+  - "(Demo)"
+  - "(Instrumental)"
+  - "(Karaoke)"
+
+# Künstler-Mapping
+# Pro Künstler genau eine Quelle angeben:
+#   - ytmusic_id (Channel Browse-ID von music.youtube.com, beginnt oft mit UC oder MPAD)
+#   - youtube_url (Fallback: regulärer YouTube-Kanal)
+artists:
+  - name: "Rammstein"
+    ytmusic_id: "UCw39ZmFGboKvrHv4n6LviCA"
+
+  - name: "Linkin Park"
+    ytmusic_id: "UCZU9T1ceaOgwfLRq7OKFU4Q"
+
+  # Beispiel: Künstler nicht auf YT Music verfügbar
+  # - name: "Indie Band X"
+  #   youtube_url: "https://youtube.com/@indiebandx"
+
+# Optionale Playlists. Strikt getrennt von 'artists' — Tracks landen in einem eigenen
+# Playlist-Ordner (siehe 'artist'-Feld) und werden NICHT mit der Diskografie dedupliziert.
+# playlists:
+#   - name: "This is Bounce"                          # Pflicht: Ordnername + Album-Tag
+#     id: "PLUz4LXLKvZVAPbk7v56U0mgTBy5BPT3Qe"        # Pflicht: YT-Music Playlist-ID
+#     artist: "HBz"                                   # optional: Top-Level Ordner
+#     apply_filter: false                             # optional: Studio-Filter ausschalten (Default: true)

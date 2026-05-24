@@ -1,0 +1,10 @@
+ytmusicapi>=1.7.0
+yt-dlp>=2024.10.0
+yt-dlp-ejs>=0.2.0
+bgutil-ytdlp-pot-provider>=1.2.0
+mutagen>=1.47.0
+click>=8.1.0
+rich>=13.7.0
+PyYAML>=6.0
+rapidfuzz>=3.6.0
+requests>=2.31.0

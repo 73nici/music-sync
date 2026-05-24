@@ -1,0 +1,35 @@
+services:
+  # Long-running PO-Token-Server. Generiert authentische YouTube-Tokens für yt-dlp.
+  # Erreichbar im internen Netz unter http://pot-provider:4416.
+  pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: music-sync-pot
+    restart: unless-stopped
+    # Optional: Port am Host freigeben falls man den Provider auch ausserhalb von compose nutzen will.
+    # ports:
+    #   - "127.0.0.1:4416:4416"
+
+  music-sync:
+    build:
+      context: .
+      args:
+        # Auf UID/GID des Host-Users setzen (id -u / id -g), damit Dateien
+        # nicht als root angelegt werden.
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: music-sync:latest
+    container_name: music-sync
+    # Container ist als CLI gedacht: einmal laufen lassen und beenden.
+    # Für cron: host-cron ruft `docker compose run --rm music-sync sync`.
+    restart: "no"
+    depends_on:
+      - pot-provider
+    volumes:
+      # Musikordner (gleichzeitig Quelle für Scan und Ziel für Downloads).
+      - ${MUSIC_DIR:-./music}:/music
+      # Config-Verzeichnis (enthält config.yaml + optional cookies.txt).
+      - ${CONFIG_DIR:-./config}:/config
+      # Cache (SQLite-State + rotierte Logs).
+      - ${CACHE_DIR:-./cache}:/cache
+    # Default-Befehl: Hilfe ausgeben. Für tatsächliche Aktion: `docker compose run --rm music-sync sync`.
+    command: ["--help"]

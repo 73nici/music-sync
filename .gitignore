@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# User-Files
+config.yaml
+cookies.txt
+.env
+
+# Docker volume defaults
+config/
+cache/
+music/
+download/
+
+# Logs
+*.log
+
+# Claude Code workspace
+.claude/
