@@ -23,8 +23,9 @@ def _load(ctx: click.Context) -> Config:
     "config_path",
     type=click.Path(dir_okay=False, path_type=Path),
     default=DEFAULT_CONFIG_PATH,
+    envvar="MUSIC_SYNC_CONFIG",
     show_default=True,
-    help="Pfad zur config.yaml",
+    help="Pfad zur config.yaml (auch via MUSIC_SYNC_CONFIG env-var)",
 )
 @click.option("-v", "--verbose", is_flag=True, help="Logs zusätzlich auf stdout ausgeben")
 @click.pass_context
