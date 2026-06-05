@@ -5,6 +5,7 @@ from typing import Any
 
 from ytmusicapi import YTMusic
 
+from .cache import ApiCache
 from .filters import is_studio_version
 from .logger import get_logger
 
@@ -29,9 +30,12 @@ class RemoteTrack:
 
 
 class YTMusicSource:
-    def __init__(self, filter_keywords: list[str]) -> None:
+    def __init__(
+        self, filter_keywords: list[str], cache: ApiCache | None = None
+    ) -> None:
         self._client = YTMusic()
         self._filter_keywords = filter_keywords
+        self._cache = cache
 
     def fetch_playlist_tracks(
         self,
@@ -81,13 +85,19 @@ class YTMusicSource:
         logger.info("Playlist '%s' yielded %d tracks (apply_filter=%s)", playlist_name, len(results), apply_filter)
         return results
 
-    def fetch_artist_tracks(self, channel_id: str, artist_name: str) -> list[RemoteTrack]:
+    def fetch_artist_tracks(
+        self, channel_id: str, artist_name: str, refresh: bool = False
+    ) -> list[RemoteTrack]:
         """Fetch all studio tracks of an artist from YT Music (albums + singles).
 
         Returns the raw list including duplicates across album/compilation releases.
         Downstream `_dedup_releases` picks the best version (priority: track_number,
         album, then oldest release_year) — that is how an Original Studio Album beats
         a later Compilation appearance.
+
+        The artist's album LIST is always fetched fresh (so new releases are found);
+        individual album track lists are served from the immutable cache when present.
+        `refresh=True` bypasses the cache and re-fetches every album.
         """
         try:
             artist_data = self._client.get_artist(channel_id)
@@ -101,7 +111,7 @@ class YTMusicSource:
         logger.info("Artist '%s' has %d albums/EPs to inspect", artist_name, len(album_browse_ids))
 
         for browse_id in album_browse_ids:
-            for track in self._fetch_album_tracks(browse_id, artist_name):
+            for track in self._fetch_album_tracks(browse_id, artist_name, refresh=refresh):
                 if not is_studio_version(track.title, self._filter_keywords):
                     logger.debug("Filtered (non-studio): %s", track.title)
                     continue
@@ -171,9 +181,16 @@ class YTMusicSource:
         logger.info("Fetched %d album ids from full list (%s)", len(ids), browse_id)
         return ids
 
-    def _fetch_album_tracks(self, browse_id: str, artist_name: str) -> list[RemoteTrack]:
+    def _fetch_album_tracks(
+        self, browse_id: str, artist_name: str, refresh: bool = False
+    ) -> list[RemoteTrack]:
         try:
-            album = self._client.get_album(browse_id)
+            if self._cache is not None:
+                album = self._cache.get_album(
+                    browse_id, lambda: self._client.get_album(browse_id), force=refresh
+                )
+            else:
+                album = self._client.get_album(browse_id)
         except Exception as exc:
             logger.warning("Failed to get_album(%s): %s", browse_id, exc)
             return []

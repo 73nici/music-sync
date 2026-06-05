@@ -15,6 +15,7 @@ from rich.table import Table
 
 import re
 
+from .cache import ApiCache
 from .config import ArtistConfig, Config, PlaylistConfig
 from .db import StateDB
 from .downloader import DiskSpaceError, DownloadError, Downloader
@@ -60,11 +61,13 @@ def cmd_scan(config: Config) -> None:
     console.print(f"\nGesamt: {sum(len(v) for v in library.values())} Tracks")
 
 
-def cmd_sync(config: Config, artist_name: str | None, dry_run: bool) -> None:
+def cmd_sync(
+    config: Config, artist_name: str | None, dry_run: bool, refresh: bool = False
+) -> None:
     library = scan_library(config.music_dir)
     db = StateDB(config.state_db_path)
 
-    missing = _collect_missing_tracks(config, library, db, artist_name)
+    missing = _collect_missing_tracks(config, library, db, artist_name, refresh=refresh)
     missing += _collect_playlist_tracks(config, db, artist_name)
 
     if not missing:
@@ -81,10 +84,12 @@ def cmd_sync(config: Config, artist_name: str | None, dry_run: bool) -> None:
     _download_missing(config, db, missing)
 
 
-def cmd_list_missing(config: Config, artist_name: str | None) -> None:
+def cmd_list_missing(
+    config: Config, artist_name: str | None, refresh: bool = False
+) -> None:
     library = scan_library(config.music_dir)
     db = StateDB(config.state_db_path)
-    missing = _collect_missing_tracks(config, library, db, artist_name)
+    missing = _collect_missing_tracks(config, library, db, artist_name, refresh=refresh)
     missing += _collect_playlist_tracks(config, db, artist_name)
     if not missing:
         console.print("[green]Keine fehlenden Songs.[/green]")
@@ -129,10 +134,12 @@ def _collect_missing_tracks(
     library: dict,
     db: StateDB,
     artist_filter: str | None,
+    refresh: bool = False,
 ) -> list[MissingTrack]:
     missing: list[MissingTrack] = []
 
-    ytmusic = YTMusicSource(filter_keywords=config.filter_keywords)
+    cache = ApiCache(config.api_cache_path)
+    ytmusic = YTMusicSource(filter_keywords=config.filter_keywords, cache=cache)
     yt_fallback = YouTubeChannelSource(filter_keywords=config.filter_keywords, cookies_file=config.cookies_file)
 
     for artist_cfg in config.artists:
@@ -142,7 +149,9 @@ def _collect_missing_tracks(
         console.print(f"[cyan]→ Lade Diskografie für {artist_cfg.name}...[/cyan]")
 
         if artist_cfg.ytmusic_id:
-            remote_tracks = ytmusic.fetch_artist_tracks(artist_cfg.ytmusic_id, artist_cfg.name)
+            remote_tracks = ytmusic.fetch_artist_tracks(
+                artist_cfg.ytmusic_id, artist_cfg.name, refresh=refresh
+            )
             db.update_channel_sync(artist_cfg.name, "ytmusic", artist_cfg.ytmusic_id)
         else:
             assert artist_cfg.youtube_url

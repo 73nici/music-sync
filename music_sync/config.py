@@ -64,6 +64,10 @@ class Config:
         return self.cache_dir / "state.db"
 
     @property
+    def api_cache_path(self) -> Path:
+        return self.cache_dir / "api_cache.db"
+
+    @property
     def log_file_path(self) -> Path:
         return self.cache_dir / "music-sync.log"
 
