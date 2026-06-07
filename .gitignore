@@ -4,6 +4,13 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+
+# Build- & Coverage-Artefakte
+dist/
+build/
+.coverage
+coverage.xml
 
 # User-Files
 config.yaml
