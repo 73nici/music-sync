@@ -95,7 +95,8 @@ class StateDB:
         with self._conn() as c:
             c.execute(
                 """
-                INSERT INTO downloads (video_id, artist, title, album, file_path, status, retry_count)
+                INSERT INTO downloads
+                    (video_id, artist, title, album, file_path, status, retry_count)
                 VALUES (?, ?, ?, ?, ?, 'success', 0)
                 ON CONFLICT(video_id) DO UPDATE SET
                     status='success',
@@ -122,7 +123,8 @@ class StateDB:
             new_count = (row["retry_count"] + 1) if row else 1
             c.execute(
                 """
-                INSERT INTO downloads (video_id, artist, title, album, status, retry_count, error_message)
+                INSERT INTO downloads
+                    (video_id, artist, title, album, status, retry_count, error_message)
                 VALUES (?, ?, ?, ?, 'failed', ?, ?)
                 ON CONFLICT(video_id) DO UPDATE SET
                     status='failed',

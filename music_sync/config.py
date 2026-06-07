@@ -13,6 +13,7 @@ def _default_cache_dir() -> Path:
     base = Path(xdg) if xdg else Path.home() / ".cache"
     return base / "music-sync"
 
+
 DEFAULT_FILTER_KEYWORDS = [
     "(Live)",
     "(Acoustic)",
@@ -32,9 +33,7 @@ class ArtistConfig:
 
     def __post_init__(self) -> None:
         if not self.ytmusic_id and not self.youtube_url:
-            raise ValueError(
-                f"Artist '{self.name}' needs either ytmusic_id or youtube_url"
-            )
+            raise ValueError(f"Artist '{self.name}' needs either ytmusic_id or youtube_url")
 
 
 @dataclass(frozen=True)

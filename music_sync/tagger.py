@@ -13,7 +13,12 @@ from .source_ytmusic import RemoteTrack
 logger = get_logger("tagger")
 
 REQUEST_TIMEOUT = 15
-MIME_BY_EXT = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+MIME_BY_EXT = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 
 
 def tag_file(file_path: Path, track: RemoteTrack) -> None:

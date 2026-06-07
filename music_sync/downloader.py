@@ -47,7 +47,7 @@ class Downloader:
 
         # IMPORTANT: do NOT use Path.with_suffix here — it treats the last '.' as the
         # extension, which mangles names like 'Song (feat. Artist).opus'.
-        outtmpl = f"{str(target_path)[:-len('.opus')]}.%(ext)s"
+        outtmpl = f"{str(target_path)[: -len('.opus')]}.%(ext)s"
 
         opts: dict = {
             "format": "bestaudio[ext=webm]/bestaudio/best",
@@ -91,6 +91,6 @@ class Downloader:
         usage = shutil.disk_usage(directory)
         if usage.free < self._min_free_bytes:
             raise DiskSpaceError(
-                f"Insufficient disk space: {usage.free // (1024*1024)} MB free, "
-                f"need at least {self._min_free_bytes // (1024*1024)} MB"
+                f"Insufficient disk space: {usage.free // (1024 * 1024)} MB free, "
+                f"need at least {self._min_free_bytes // (1024 * 1024)} MB"
             )

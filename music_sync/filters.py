@@ -23,7 +23,7 @@ def sanitize_path_component(name: str) -> str:
 
 
 def is_studio_version(title: str, keywords: list[str]) -> bool:
-    """Return True if no forbidden keyword appears either as substring or inside a (...) / [...] group.
+    """Return True if no forbidden keyword appears as substring or inside a (...)/[...] group.
 
     Each configured keyword is normalized by stripping surrounding brackets so a config
     entry like '(Live)' matches any parenthesised group containing 'live' — e.g.

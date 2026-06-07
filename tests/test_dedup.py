@@ -97,7 +97,9 @@ def test_dedup_prefers_original_album_over_compilation():
 
 def test_dedup_prefers_original_over_anniversary_edition():
     original = make("v1", "Waterloo", album="Waterloo", track_number=1, release_year=1974)
-    anniversary = make("v2", "Waterloo", album="Waterloo (50th Anniversary)", track_number=1, release_year=2024)
+    anniversary = make(
+        "v2", "Waterloo", album="Waterloo (50th Anniversary)", track_number=1, release_year=2024
+    )
     result = _dedup_releases([anniversary, original])
     assert result[0].video_id == "v1"
 
@@ -113,15 +115,23 @@ def test_dedup_missing_year_treated_as_very_old():
 def test_dedup_keeps_language_versions_separate():
     """'Waterloo' (English) and 'Waterloo (Swedish Version)' must stay distinct."""
     english = make("v1", "Waterloo", album="Waterloo", track_number=1, release_year=1974)
-    swedish = make("v2", "Waterloo (Swedish Version)", album="Waterloo", track_number=13, release_year=1974)
+    swedish = make(
+        "v2", "Waterloo (Swedish Version)", album="Waterloo", track_number=13, release_year=1974
+    )
     result = _dedup_releases([english, swedish])
     assert {t.video_id for t in result} == {"v1", "v2"}
 
 
 def test_dedup_keeps_multiple_language_versions():
-    swedish = make("v1", "Waterloo (Swedish Version)", album="Anniv", track_number=2, release_year=2024)
-    german = make("v2", "Waterloo (German Version)", album="Anniv", track_number=3, release_year=2024)
-    french = make("v3", "Waterloo (French Version)", album="Anniv", track_number=4, release_year=2024)
+    swedish = make(
+        "v1", "Waterloo (Swedish Version)", album="Anniv", track_number=2, release_year=2024
+    )
+    german = make(
+        "v2", "Waterloo (German Version)", album="Anniv", track_number=3, release_year=2024
+    )
+    french = make(
+        "v3", "Waterloo (French Version)", album="Anniv", track_number=4, release_year=2024
+    )
     result = _dedup_releases([swedish, german, french])
     assert {t.video_id for t in result} == {"v1", "v2", "v3"}
 

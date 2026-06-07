@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from music_sync.filters import (
     build_playlist_target_path,
     build_target_path,

@@ -63,9 +63,7 @@ def scan(ctx: click.Context) -> None:
     help="API-Cache ignorieren und Album-Diskografien neu von YT Music abrufen",
 )
 @click.pass_context
-def sync(
-    ctx: click.Context, artist_name: str | None, dry_run: bool, refresh: bool
-) -> None:
+def sync(ctx: click.Context, artist_name: str | None, dry_run: bool, refresh: bool) -> None:
     """Fehlende Songs der konfigurierten Künstler herunterladen."""
     from .commands import cmd_sync
 
