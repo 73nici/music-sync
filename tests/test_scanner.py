@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from music_sync.scanner import _parse_filename
 
 

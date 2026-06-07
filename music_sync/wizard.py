@@ -13,9 +13,7 @@ def run_wizard(config_path: Path) -> None:
     click.echo("=== Music-Sync First-Run Wizard ===\n")
 
     if config_path.exists():
-        if not click.confirm(
-            f"{config_path} existiert bereits. Überschreiben?", default=False
-        ):
+        if not click.confirm(f"{config_path} existiert bereits. Überschreiben?", default=False):
             click.echo("Abgebrochen.")
             return
 
@@ -63,9 +61,7 @@ def run_wizard(config_path: Path) -> None:
         name = click.prompt("Künstler-Name", default="", show_default=False).strip()
         if not name:
             break
-        kind = click.prompt(
-            "Quelle", type=click.Choice(["ytmusic", "youtube"]), default="ytmusic"
-        )
+        kind = click.prompt("Quelle", type=click.Choice(["ytmusic", "youtube"]), default="ytmusic")
         if kind == "ytmusic":
             ytmusic_id = click.prompt("YT Music Channel-ID (browseId)").strip()
             artists.append({"name": name, "ytmusic_id": ytmusic_id})
@@ -74,7 +70,9 @@ def run_wizard(config_path: Path) -> None:
             artists.append({"name": name, "youtube_url": url})
 
     if not artists:
-        click.echo("Hinweis: keine Künstler eingetragen — du kannst sie später in config.yaml ergänzen.")
+        click.echo(
+            "Hinweis: keine Künstler eingetragen — du kannst sie später in config.yaml ergänzen."
+        )
         artists.append({"name": "Beispiel-Künstler", "ytmusic_id": "REPLACE_ME"})
 
     data: dict = {

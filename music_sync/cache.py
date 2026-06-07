@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .logger import get_logger
 
@@ -51,9 +52,7 @@ class ApiCache:
         finally:
             conn.close()
 
-    def get_album(
-        self, browse_id: str, fetch_fn: Callable[[], Any], *, force: bool = False
-    ) -> Any:
+    def get_album(self, browse_id: str, fetch_fn: Callable[[], Any], *, force: bool = False) -> Any:
         """Return the cached album payload for `browse_id`, fetching+storing on miss."""
         return self.get_or_fetch(browse_id, "album", fetch_fn, force=force)
 
@@ -72,9 +71,7 @@ class ApiCache:
 
     def _read(self, key: str) -> Any | None:
         with self._conn() as c:
-            row = c.execute(
-                "SELECT payload FROM api_cache WHERE key = ?", (key,)
-            ).fetchone()
+            row = c.execute("SELECT payload FROM api_cache WHERE key = ?", (key,)).fetchone()
         if row is None:
             return None
         try:
@@ -107,7 +104,5 @@ class ApiCache:
 
     def stats(self) -> dict[str, int]:
         with self._conn() as c:
-            rows = c.execute(
-                "SELECT kind, COUNT(*) FROM api_cache GROUP BY kind"
-            ).fetchall()
+            rows = c.execute("SELECT kind, COUNT(*) FROM api_cache GROUP BY kind").fetchall()
         return {kind: count for kind, count in rows}

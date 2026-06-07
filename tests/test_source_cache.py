@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from music_sync import source_ytmusic
 from music_sync.cache import ApiCache
 
@@ -18,9 +17,7 @@ class FakeClient:
             "title": "Greatest Hits",
             "thumbnails": [],
             "year": "1980",
-            "tracks": [
-                {"videoId": "v1", "title": "Song", "trackNumber": 1, "duration": "3:00"}
-            ],
+            "tracks": [{"videoId": "v1", "title": "Song", "trackNumber": 1, "duration": "3:00"}],
         }
 
 

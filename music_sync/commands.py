@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,12 +14,10 @@ from rich.progress import (
 )
 from rich.table import Table
 
-import re
-
 from .cache import ApiCache
 from .config import ArtistConfig, Config, PlaylistConfig
 from .db import StateDB
-from .downloader import DiskSpaceError, DownloadError, Downloader
+from .downloader import DiskSpaceError, Downloader, DownloadError
 from .filters import build_playlist_target_path, build_target_path
 from .logger import get_logger
 from .matcher import is_song_in_library, normalize
@@ -61,9 +60,7 @@ def cmd_scan(config: Config) -> None:
     console.print(f"\nGesamt: {sum(len(v) for v in library.values())} Tracks")
 
 
-def cmd_sync(
-    config: Config, artist_name: str | None, dry_run: bool, refresh: bool = False
-) -> None:
+def cmd_sync(config: Config, artist_name: str | None, dry_run: bool, refresh: bool = False) -> None:
     library = scan_library(config.music_dir)
     db = StateDB(config.state_db_path)
 
@@ -84,9 +81,7 @@ def cmd_sync(
     _download_missing(config, db, missing)
 
 
-def cmd_list_missing(
-    config: Config, artist_name: str | None, refresh: bool = False
-) -> None:
+def cmd_list_missing(config: Config, artist_name: str | None, refresh: bool = False) -> None:
     library = scan_library(config.music_dir)
     db = StateDB(config.state_db_path)
     missing = _collect_missing_tracks(config, library, db, artist_name, refresh=refresh)
@@ -115,7 +110,9 @@ def cmd_retry_failed(config: Config) -> None:
     for record in failed:
         artist_cfg = artist_lookup.get(record.artist.lower())
         if artist_cfg is None:
-            console.print(f"[yellow]Skip {record.artist} - {record.title}: nicht mehr in config[/yellow]")
+            console.print(
+                f"[yellow]Skip {record.artist} - {record.title}: nicht mehr in config[/yellow]"
+            )
             continue
         remote = RemoteTrack(
             video_id=record.video_id,
@@ -126,7 +123,9 @@ def cmd_retry_failed(config: Config) -> None:
             duration_seconds=None,
             cover_url=None,
         )
-        _download_single(config, db, downloader, MissingTrack(remote=remote, artist_config=artist_cfg))
+        _download_single(
+            config, db, downloader, MissingTrack(remote=remote, artist_config=artist_cfg)
+        )
 
 
 def _collect_missing_tracks(
@@ -140,7 +139,9 @@ def _collect_missing_tracks(
 
     cache = ApiCache(config.api_cache_path)
     ytmusic = YTMusicSource(filter_keywords=config.filter_keywords, cache=cache)
-    yt_fallback = YouTubeChannelSource(filter_keywords=config.filter_keywords, cookies_file=config.cookies_file)
+    yt_fallback = YouTubeChannelSource(
+        filter_keywords=config.filter_keywords, cookies_file=config.cookies_file
+    )
 
     for artist_cfg in config.artists:
         if artist_filter and artist_cfg.name.lower() != artist_filter.lower():
@@ -394,8 +395,10 @@ def _print_missing_table(missing: list[MissingTrack]) -> None:
 
     def group_key(item: MissingTrack) -> tuple[str, str, str]:
         source = f"Playlist: {item.playlist_config.name}" if item.playlist_config else "Channel"
-        artist = item.remote.artist if item.playlist_config else (
-            item.artist_config.name if item.artist_config else item.remote.artist
+        artist = (
+            item.remote.artist
+            if item.playlist_config
+            else (item.artist_config.name if item.artist_config else item.remote.artist)
         )
         album = item.remote.album or ""
         return (source, artist, album)

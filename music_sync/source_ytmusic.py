@@ -30,9 +30,7 @@ class RemoteTrack:
 
 
 class YTMusicSource:
-    def __init__(
-        self, filter_keywords: list[str], cache: ApiCache | None = None
-    ) -> None:
+    def __init__(self, filter_keywords: list[str], cache: ApiCache | None = None) -> None:
         self._client = YTMusic()
         self._filter_keywords = filter_keywords
         self._cache = cache
@@ -82,7 +80,12 @@ class YTMusicSource:
                 )
             )
 
-        logger.info("Playlist '%s' yielded %d tracks (apply_filter=%s)", playlist_name, len(results), apply_filter)
+        logger.info(
+            "Playlist '%s' yielded %d tracks (apply_filter=%s)",
+            playlist_name,
+            len(results),
+            apply_filter,
+        )
         return results
 
     def fetch_artist_tracks(
@@ -156,7 +159,9 @@ class YTMusicSource:
     def _fetch_full_album_list(self, browse_id: str, params: str) -> list[str]:
         """Browse the artist's full album/singles page and return all album browseIds."""
         try:
-            response = self._client._send_request("browse", {"browseId": browse_id, "params": params})
+            response = self._client._send_request(
+                "browse", {"browseId": browse_id, "params": params}
+            )
         except Exception as exc:
             logger.warning("Full album list browse failed (%s): %s", browse_id, exc)
             return []
@@ -220,9 +225,7 @@ class YTMusicSource:
             )
         return results
 
-    def _collect_singles(
-        self, artist_data: dict[str, Any], artist_name: str
-    ) -> list[RemoteTrack]:
+    def _collect_singles(self, artist_data: dict[str, Any], artist_name: str) -> list[RemoteTrack]:
         """Some singles may live in 'songs' section and not be linked to a release."""
         results: list[RemoteTrack] = []
         songs_section = artist_data.get("songs") or {}

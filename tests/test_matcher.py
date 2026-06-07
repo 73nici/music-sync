@@ -5,7 +5,9 @@ from music_sync.scanner import LocalTrack
 
 
 def make_library(artist: str, titles: list[str]) -> dict[str, list[LocalTrack]]:
-    tracks = [LocalTrack(artist=artist, title=t, album=None, path=Path(f"/m/{t}.mp3")) for t in titles]
+    tracks = [
+        LocalTrack(artist=artist, title=t, album=None, path=Path(f"/m/{t}.mp3")) for t in titles
+    ]
     return {artist.lower(): tracks}
 
 
