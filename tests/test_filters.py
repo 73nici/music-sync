@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from music_sync.filters import (
+    MAX_FILENAME_BYTES,
+    NAME_MAX_BYTES,
     build_playlist_target_path,
     build_target_path,
     is_studio_version,
@@ -9,6 +11,14 @@ from music_sync.filters import (
 )
 
 KEYWORDS = ["(Live)", "(Acoustic)", "(Remix)", "(Cover)", "(Demo)"]
+
+# Real-world title that triggered OSError(36) File name too long (Rednex).
+LONG_TITLE = (
+    "The Sad But True Story of Ray Mingus, the Lumberjack of Bulk Rock City, "
+    "and His Never Slacking Strive to Exploit the So Far Undiscovered Areas of "
+    "the Intention to Bodily Intercourse from the Opposite Species of His Kind, "
+    "During Intake of All the Mead He Could Find"
+)
 
 
 def test_sanitize_removes_forbidden_chars():
@@ -112,3 +122,42 @@ def test_playlist_path_sanitizes_problematic_chars():
         artist="A/B",
     )
     assert path == Path("/m/A_B/Playlists/Hits _ Top 50/001 - Song_ Part One.opus")
+
+
+def test_build_target_path_truncates_overlong_filename():
+    """Regression: OSError(36) for titles whose filename exceeds the FS per-component limit."""
+    path = build_target_path(Path("/m"), "Rednex", "Sex & Violins", LONG_TITLE, 8)
+    assert len(path.name.encode("utf-8")) <= MAX_FILENAME_BYTES
+    assert path.name.startswith("08 - ")
+    assert path.name.endswith(".opus")
+
+
+def test_build_target_path_keeps_short_filename_unchanged():
+    path = build_target_path(Path("/m"), "Rednex", "Sex & Violins", "Cotton Eye Joe", 5)
+    assert path.name == "05 - Cotton Eye Joe.opus"
+
+
+def test_truncation_never_splits_multibyte_chars():
+    title = "ä" * 300  # 600 UTF-8 bytes, well over the limit
+    path = build_target_path(Path("/m"), "A", "B", title, None)
+    assert len(path.name.encode("utf-8")) <= MAX_FILENAME_BYTES
+    # Round-trips cleanly only if no multi-byte character was cut in half.
+    path.name.encode("utf-8").decode("utf-8")
+
+
+def test_playlist_path_truncates_overlong_filename():
+    path = build_playlist_target_path(
+        base_dir=Path("/m"),
+        playlist_name="Mix",
+        title=LONG_TITLE,
+        track_number=3,
+        artist="Rednex",
+    )
+    assert len(path.name.encode("utf-8")) <= MAX_FILENAME_BYTES
+    assert path.name.startswith("003 - ")
+    assert path.name.endswith(".opus")
+
+
+def test_sanitize_path_component_truncates_overlong_dir():
+    component = sanitize_path_component("A" * 400)
+    assert len(component.encode("utf-8")) <= NAME_MAX_BYTES
