@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from .schedule import DEFAULT_SCAN_TIERS, ScanTier
+
 
 def _default_cache_dir() -> Path:
     """Honor XDG_CACHE_HOME so Docker can override the cache location via env."""
@@ -45,6 +47,16 @@ class PlaylistConfig:
 
 
 @dataclass(frozen=True)
+class ScanScheduleConfig:
+    """Adaptive re-scan cadence: recently active artists are checked often, dormant
+    ones fall back to long intervals. Disabled -> every run checks every artist.
+    """
+
+    enabled: bool = True
+    tiers: list[ScanTier] = field(default_factory=lambda: list(DEFAULT_SCAN_TIERS))
+
+
+@dataclass(frozen=True)
 class Config:
     music_dir: Path
     download_dir: Path
@@ -57,6 +69,7 @@ class Config:
     log_level: str = "INFO"
     filter_keywords: list[str] = field(default_factory=lambda: list(DEFAULT_FILTER_KEYWORDS))
     cache_dir: Path = field(default_factory=_default_cache_dir)
+    scan_schedule: ScanScheduleConfig = field(default_factory=ScanScheduleConfig)
 
     @property
     def state_db_path(self) -> Path:
@@ -127,7 +140,39 @@ def load_config(path: Path) -> Config:
         fuzzy_match_threshold=int(raw.get("fuzzy_match_threshold", 85)),
         log_level=str(raw.get("log_level", "INFO")).upper(),
         filter_keywords=filter_keywords,
+        scan_schedule=_parse_scan_schedule(raw.get("scan_schedule")),
     )
+
+
+def _parse_scan_schedule(raw: dict | None) -> ScanScheduleConfig:
+    if not raw:
+        return ScanScheduleConfig()
+
+    tiers_raw = raw.get("tiers")
+    if not tiers_raw:
+        tiers = list(DEFAULT_SCAN_TIERS)
+    else:
+        tiers = [_parse_tier(entry) for entry in tiers_raw]
+        # Nach Alter sortieren, catch-all (max_age_days: null) ans Ende — so ist die
+        # Reihenfolge in der config.yaml egal.
+        tiers.sort(key=lambda t: (t.max_age_days is None, t.max_age_days or 0))
+
+    return ScanScheduleConfig(enabled=bool(raw.get("enabled", True)), tiers=tiers)
+
+
+def _parse_tier(entry: dict) -> ScanTier:
+    max_age = entry.get("max_age_days")
+    interval = entry.get("interval_hours")
+    if interval is None:
+        raise ValueError("Each 'scan_schedule.tiers' entry needs 'interval_hours'")
+    interval = float(interval)
+    if interval < 0:
+        raise ValueError("'scan_schedule.tiers[].interval_hours' must not be negative")
+    if max_age is not None:
+        max_age = int(max_age)
+        if max_age < 0:
+            raise ValueError("'scan_schedule.tiers[].max_age_days' must not be negative")
+    return ScanTier(max_age_days=max_age, interval_hours=interval)
 
 
 def _required_path(raw: dict, key: str) -> Path:

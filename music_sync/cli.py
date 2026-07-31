@@ -62,12 +62,26 @@ def scan(ctx: click.Context) -> None:
     is_flag=True,
     help="API-Cache ignorieren und Album-Diskografien neu von YT Music abrufen",
 )
+@click.option(
+    "--all",
+    "all_artists",
+    is_flag=True,
+    help="Scan-Zeitplan ignorieren und alle Künstler prüfen",
+)
 @click.pass_context
-def sync(ctx: click.Context, artist_name: str | None, dry_run: bool, refresh: bool) -> None:
+def sync(
+    ctx: click.Context, artist_name: str | None, dry_run: bool, refresh: bool, all_artists: bool
+) -> None:
     """Fehlende Songs der konfigurierten Künstler herunterladen."""
     from .commands import cmd_sync
 
-    cmd_sync(_load(ctx), artist_name=artist_name, dry_run=dry_run, refresh=refresh)
+    cmd_sync(
+        _load(ctx),
+        artist_name=artist_name,
+        dry_run=dry_run,
+        refresh=refresh,
+        all_artists=all_artists,
+    )
 
 
 @main.command("list-missing")
@@ -77,12 +91,29 @@ def sync(ctx: click.Context, artist_name: str | None, dry_run: bool, refresh: bo
     is_flag=True,
     help="API-Cache ignorieren und Album-Diskografien neu von YT Music abrufen",
 )
+@click.option(
+    "--all",
+    "all_artists",
+    is_flag=True,
+    help="Scan-Zeitplan ignorieren und alle Künstler prüfen",
+)
 @click.pass_context
-def list_missing(ctx: click.Context, artist_name: str | None, refresh: bool) -> None:
+def list_missing(
+    ctx: click.Context, artist_name: str | None, refresh: bool, all_artists: bool
+) -> None:
     """Auflisten welche Songs heruntergeladen würden."""
     from .commands import cmd_list_missing
 
-    cmd_list_missing(_load(ctx), artist_name=artist_name, refresh=refresh)
+    cmd_list_missing(_load(ctx), artist_name=artist_name, refresh=refresh, all_artists=all_artists)
+
+
+@main.command()
+@click.pass_context
+def schedule(ctx: click.Context) -> None:
+    """Zeigen, wann welcher Künstler das nächste Mal gescannt wird."""
+    from .commands import cmd_schedule
+
+    cmd_schedule(_load(ctx))
 
 
 @main.command("retry-failed")

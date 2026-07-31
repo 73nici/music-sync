@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -22,6 +23,18 @@ from .filters import build_playlist_target_path, build_target_path
 from .logger import get_logger
 from .matcher import is_song_in_library, normalize
 from .scanner import scan_library
+from .schedule import (
+    ArtistScanState,
+    apply_scan_result,
+    format_duration,
+    format_interval,
+    interval_for,
+    is_due,
+    last_release_date,
+    next_due,
+    release_signature,
+    utcnow,
+)
 from .source_youtube import YouTubeChannelSource
 from .source_ytmusic import RemoteTrack, YTMusicSource
 from .tagger import tag_file
@@ -60,11 +73,19 @@ def cmd_scan(config: Config) -> None:
     console.print(f"\nGesamt: {sum(len(v) for v in library.values())} Tracks")
 
 
-def cmd_sync(config: Config, artist_name: str | None, dry_run: bool, refresh: bool = False) -> None:
+def cmd_sync(
+    config: Config,
+    artist_name: str | None,
+    dry_run: bool,
+    refresh: bool = False,
+    all_artists: bool = False,
+) -> None:
     library = scan_library(config.music_dir)
     db = StateDB(config.state_db_path)
 
-    missing = _collect_missing_tracks(config, library, db, artist_name, refresh=refresh)
+    missing = _collect_missing_tracks(
+        config, library, db, artist_name, refresh=refresh, ignore_schedule=all_artists
+    )
     missing += _collect_playlist_tracks(config, db, artist_name)
 
     if not missing:
@@ -81,16 +102,70 @@ def cmd_sync(config: Config, artist_name: str | None, dry_run: bool, refresh: bo
     _download_missing(config, db, missing)
 
 
-def cmd_list_missing(config: Config, artist_name: str | None, refresh: bool = False) -> None:
+def cmd_list_missing(
+    config: Config,
+    artist_name: str | None,
+    refresh: bool = False,
+    all_artists: bool = False,
+) -> None:
     library = scan_library(config.music_dir)
     db = StateDB(config.state_db_path)
-    missing = _collect_missing_tracks(config, library, db, artist_name, refresh=refresh)
+    missing = _collect_missing_tracks(
+        config, library, db, artist_name, refresh=refresh, ignore_schedule=all_artists
+    )
     missing += _collect_playlist_tracks(config, db, artist_name)
     if not missing:
         console.print("[green]Keine fehlenden Songs.[/green]")
         return
     _print_missing_table(missing)
     console.print(f"\nGesamt: {len(missing)} fehlende Songs")
+
+
+def cmd_schedule(config: Config) -> None:
+    """Show when each artist was last scanned and when the next scan is due."""
+    db = StateDB(config.state_db_path)
+    states = db.load_scan_states()
+    now = utcnow()
+    tiers = config.scan_schedule.tiers
+
+    table = Table(title="Scan-Zeitplan")
+    table.add_column("Künstler")
+    table.add_column("Letzter Scan")
+    table.add_column("Letztes Release")
+    table.add_column("Intervall", justify="right")
+    table.add_column("Nächster Scan")
+
+    rows = []
+    for artist_cfg in config.artists:
+        state = states.get(artist_cfg.name.lower()) or ArtistScanState(artist=artist_cfg.name)
+        due = next_due(state, tiers, now)
+        released = last_release_date(state, now)
+        rows.append(
+            (
+                due,
+                artist_cfg.name,
+                _fmt_ago(state.last_checked, now),
+                _fmt_ago(released, now),
+                format_interval(interval_for(state, tiers, now)),
+                "[green]fällig[/green]" if due <= now else f"in {format_duration(due - now)}",
+            )
+        )
+
+    for _, *cells in sorted(rows, key=lambda row: row[0]):
+        table.add_row(*cells)
+
+    console.print(table)
+    if not config.scan_schedule.enabled:
+        console.print(
+            "\n[yellow]scan_schedule.enabled: false — jeder Lauf prüft alle Künstler.[/yellow]"
+        )
+
+
+def _fmt_ago(moment: datetime | None, now: datetime) -> str:
+    if moment is None:
+        return "—"
+    delta = now - moment
+    return "gerade eben" if delta.total_seconds() <= 0 else f"vor {format_duration(delta)}"
 
 
 def cmd_retry_failed(config: Config) -> None:
@@ -134,6 +209,7 @@ def _collect_missing_tracks(
     db: StateDB,
     artist_filter: str | None,
     refresh: bool = False,
+    ignore_schedule: bool = False,
 ) -> list[MissingTrack]:
     missing: list[MissingTrack] = []
 
@@ -143,21 +219,41 @@ def _collect_missing_tracks(
         filter_keywords=config.filter_keywords, cookies_file=config.cookies_file
     )
 
+    now = utcnow()
+    tiers = config.scan_schedule.tiers
+    states = db.load_scan_states()
+    # Ein explizit angeforderter Künstler und --refresh/--all umgehen den Zeitplan.
+    use_schedule = (
+        config.scan_schedule.enabled and not ignore_schedule and not refresh and not artist_filter
+    )
+    skipped: list[tuple[str, datetime]] = []
+
     for artist_cfg in config.artists:
         if artist_filter and artist_cfg.name.lower() != artist_filter.lower():
+            continue
+
+        state = states.get(artist_cfg.name.lower()) or ArtistScanState(artist=artist_cfg.name)
+        if use_schedule and not is_due(state, tiers, now):
+            due = next_due(state, tiers, now)
+            skipped.append((artist_cfg.name, due))
+            logger.info(
+                "Skipping %s per schedule (next check %s)", artist_cfg.name, due.isoformat()
+            )
             continue
 
         console.print(f"[cyan]→ Lade Diskografie für {artist_cfg.name}...[/cyan]")
 
         if artist_cfg.ytmusic_id:
+            source, source_id = "ytmusic", artist_cfg.ytmusic_id
             remote_tracks = ytmusic.fetch_artist_tracks(
                 artist_cfg.ytmusic_id, artist_cfg.name, refresh=refresh
             )
-            db.update_channel_sync(artist_cfg.name, "ytmusic", artist_cfg.ytmusic_id)
         else:
             assert artist_cfg.youtube_url
+            source, source_id = "youtube", artist_cfg.youtube_url
             remote_tracks = yt_fallback.fetch_artist_tracks(artist_cfg.youtube_url, artist_cfg.name)
-            db.update_channel_sync(artist_cfg.name, "youtube", artist_cfg.youtube_url)
+
+        _record_scan(db, state, remote_tracks, source, source_id, now)
 
         for remote in _dedup_releases(remote_tracks):
             if db.is_known(remote.video_id):
@@ -179,7 +275,41 @@ def _collect_missing_tracks(
                 continue
             missing.append(MissingTrack(remote=remote, artist_config=artist_cfg))
 
+    _report_skipped(skipped, now)
     return missing
+
+
+def _record_scan(
+    db: StateDB,
+    state: ArtistScanState,
+    remote_tracks: list[RemoteTrack],
+    source: str,
+    source_id: str,
+    now: datetime,
+) -> None:
+    """Persist the scan outcome so the next run can decide whether to skip this artist."""
+    signature = release_signature(track.video_id for track in remote_tracks)
+    newest_year = max(
+        (track.release_year for track in remote_tracks if track.release_year), default=None
+    )
+    new_state, detected = apply_scan_result(state, signature, newest_year, now)
+    db.save_scan_state(new_state, source, source_id)
+
+    if detected:
+        console.print(f"  [green]✔ Neue Releases erkannt — {state.artist}[/green]")
+        logger.info("New releases detected for %s", state.artist)
+    elif signature is None:
+        logger.warning("No tracks returned for %s — keeping previous signature", state.artist)
+
+
+def _report_skipped(skipped: list[tuple[str, datetime]], now: datetime) -> None:
+    if not skipped:
+        return
+    soonest_artist, soonest_due = min(skipped, key=lambda item: item[1])
+    console.print(
+        f"[dim]{len(skipped)} Künstler ohne frische Releases übersprungen "
+        f"(nächster: {soonest_artist} in {format_duration(soonest_due - now)})[/dim]"
+    )
 
 
 def _collect_playlist_tracks(

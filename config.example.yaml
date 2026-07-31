@@ -18,6 +18,28 @@ min_free_space_mb: 500
 fuzzy_match_threshold: 85
 log_level: INFO
 
+# Adaptiver Scan-Zeitplan: Wie oft die Diskografie eines Künstlers neu von YT Music
+# abgefragt wird — abhängig davon, wie lange dessen letztes Release her ist.
+# Aktive Künstler werden bei jedem Lauf geprüft, inaktive fallen auf lange Intervalle
+# zurück. Das spart API-Calls, ohne neue Releases zu verpassen.
+#
+# Bypass: `sync --all` (Zeitplan ignorieren), `sync --artist X`, `sync --refresh`.
+# Überblick:  `music-sync schedule`
+scan_schedule:
+  enabled: true
+  tiers:
+    # max_age_days = Alter des neuesten bekannten Releases
+    # interval_hours = frühestens nach so vielen Stunden erneut scannen (0 = jeder Lauf)
+    - max_age_days: 30      # Release im letzten Monat
+      interval_hours: 0
+    - max_age_days: 180     # letztes halbes Jahr
+      interval_hours: 12
+    - max_age_days: 365     # letztes Jahr
+      interval_hours: 24
+    - max_age_days: 1095    # letzte 3 Jahre
+      interval_hours: 72
+    - interval_hours: 168   # alle übrigen (max_age_days weglassen = catch-all)
+
 # Substrings die einen Song zum Skip führen (Studio-Only Filter)
 filter_keywords:
   - "(Live)"

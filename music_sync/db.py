@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .logger import get_logger
+from .schedule import ArtistScanState
 
 logger = get_logger("db")
 
@@ -34,6 +35,14 @@ CREATE TABLE IF NOT EXISTS channel_state (
 CREATE INDEX IF NOT EXISTS idx_artist ON downloads(artist);
 CREATE INDEX IF NOT EXISTS idx_status ON downloads(status);
 """
+
+# Nachträglich ergänzte Spalten — per ALTER TABLE gegen bestehende Produktiv-DBs.
+CHANNEL_STATE_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("release_signature", "TEXT"),
+    ("last_release_at", "TIMESTAMP"),
+    ("newest_release_year", "INTEGER"),
+    ("first_seen", "TIMESTAMP"),
+)
 
 MAX_RETRIES = 3
 
@@ -69,6 +78,11 @@ class StateDB:
     def _init_schema(self) -> None:
         with self._conn() as c:
             c.executescript(SCHEMA)
+            existing = {row["name"] for row in c.execute("PRAGMA table_info(channel_state)")}
+            for column, coltype in CHANNEL_STATE_MIGRATIONS:
+                if column not in existing:
+                    c.execute(f"ALTER TABLE channel_state ADD COLUMN {column} {coltype}")
+                    logger.info("Migrated channel_state: added column %s", column)
 
     def is_known(self, video_id: str) -> bool:
         with self._conn() as c:
@@ -146,18 +160,55 @@ class StateDB:
                 (video_id, artist, title, album),
             )
 
-    def update_channel_sync(self, artist: str, source: str, source_id: str) -> None:
+    def load_scan_states(self) -> dict[str, ArtistScanState]:
+        """All persisted artist scan states, keyed by lowercased artist name."""
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT artist, last_sync, last_release_at, newest_release_year,
+                       release_signature, first_seen
+                FROM channel_state
+                """
+            ).fetchall()
+        return {
+            row["artist"].lower(): ArtistScanState(
+                artist=row["artist"],
+                last_checked=_parse_ts(row["last_sync"]),
+                last_release_at=_parse_ts(row["last_release_at"]),
+                newest_release_year=row["newest_release_year"],
+                release_signature=row["release_signature"],
+                first_seen=_parse_ts(row["first_seen"]),
+            )
+            for row in rows
+        }
+
+    def save_scan_state(self, state: ArtistScanState, source: str, source_id: str) -> None:
         with self._conn() as c:
             c.execute(
                 """
-                INSERT INTO channel_state (artist, source, source_id, last_sync)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO channel_state
+                    (artist, source, source_id, last_sync, release_signature,
+                     last_release_at, newest_release_year, first_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(artist) DO UPDATE SET
                     source=excluded.source,
                     source_id=excluded.source_id,
-                    last_sync=excluded.last_sync
+                    last_sync=excluded.last_sync,
+                    release_signature=excluded.release_signature,
+                    last_release_at=excluded.last_release_at,
+                    newest_release_year=excluded.newest_release_year,
+                    first_seen=excluded.first_seen
                 """,
-                (artist, source, source_id, datetime.utcnow().isoformat()),
+                (
+                    state.artist,
+                    source,
+                    source_id,
+                    _format_ts(state.last_checked),
+                    state.release_signature,
+                    _format_ts(state.last_release_at),
+                    state.newest_release_year,
+                    _format_ts(state.first_seen),
+                ),
             )
 
     def list_failed(self) -> list[FailedRecord]:
@@ -188,3 +239,19 @@ class StateDB:
                 "SELECT status, COUNT(*) as n FROM downloads GROUP BY status"
             ).fetchall()
         return {row["status"]: row["n"] for row in rows}
+
+
+def _parse_ts(value: str | None) -> datetime | None:
+    """Parse a stored ISO timestamp back to naive UTC. Tolerates legacy tz-aware values."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        logger.warning("Unparseable timestamp in state DB: %r", value)
+        return None
+    return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _format_ts(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None

@@ -15,6 +15,7 @@ Details zur Architektur: siehe [PLAN.md](./PLAN.md).
 - Download als `.opus` (kein Re-Encoding) via `yt-dlp`
 - Bettet Cover Art aus YT Music ein
 - Ablage: `Künstler/Album/01 - Titel.opus`, Fallback `Künstler/Singles/Titel.opus`
+- Adaptiver Scan-Zeitplan: nur Künstler mit frischen Releases werden häufig abgefragt
 - SQLite-Statedb gegen wiederholte Versuche
 - Retry-Logik (3 Versuche), `--dry-run`, rotierte Logs
 - Docker-fähig für einfaches Deployment
@@ -45,9 +46,11 @@ Der Wizard fragt nach Musik-Ordner, Zielordner und ersten Künstlern. Die `confi
 
 ```bash
 music-sync scan              # Bibliothek analysieren
-music-sync sync              # Neue Songs aller Künstler laden
+music-sync sync              # Fällige Künstler prüfen und neue Songs laden
 music-sync sync --artist X   # Nur einen Künstler
+music-sync sync --all        # Alle Künstler prüfen (Scan-Zeitplan ignorieren)
 music-sync sync --dry-run    # Vorschau ohne Download
+music-sync schedule          # Wann wird welcher Künstler wieder gescannt?
 music-sync list-missing      # Was würde geladen?
 music-sync retry-failed      # Failed neu versuchen
 ```
@@ -132,6 +135,44 @@ docker run -d --name bgutil-provider -p 4416:4416 --restart unless-stopped \
 
 ---
 
+## Adaptiver Scan-Zeitplan
+
+Ein häufiger Cron (z.B. alle 3h) muss nicht bei jedem Lauf jede Diskografie abfragen: Eine Band, deren letztes Album von 2010 ist, veröffentlicht auch in den nächsten 3 Stunden nichts. `sync` prüft deshalb pro Künstler, ob ein erneuter Scan überhaupt fällig ist, und überspringt den Rest.
+
+Wie alt ist das neueste Release des Künstlers?
+
+| Alter des letzten Releases | Erneuter Scan frühestens nach |
+|----------------------------|-------------------------------|
+| ≤ 30 Tage                  | jedem Lauf                    |
+| ≤ 180 Tage                 | 12 h                          |
+| ≤ 365 Tage                 | 24 h                          |
+| ≤ 3 Jahre                  | 3 Tagen                       |
+| älter                      | 7 Tagen                       |
+
+Das Alter kommt aus zwei Quellen, die jüngere gewinnt:
+
+1. **Beobachtete Änderung** — Music-Sync speichert pro Künstler einen Fingerprint der Diskografie (`release_signature`). Ändert er sich zwischen zwei Scans, gilt das als neues Release und der Künstler fällt zurück in die schnellste Stufe.
+2. **Release-Jahr aus YT Music** — greift schon beim allerersten Lauf, sodass Karteileichen sofort im langen Intervall landen. YT Music liefert nur das Jahr; gerechnet wird mit dem Jahresende, damit die Freshness eher über- als unterschätzt wird.
+
+Fehlen beide Signale — typisch für den YouTube-Kanal-Fallback, der keine Release-Daten ausliefert — zählt ersatzweise, seit wann ohne Neuigkeit zugeschaut wird. Solche Künstler werden anfangs bei jedem Lauf geprüft und drosseln sich über Wochen selbst ein.
+
+Der Zustand liegt in `channel_state` in der State-DB. Bestehende Datenbanken werden beim ersten Start automatisch migriert; der erste Scan eines Künstlers zählt nie als "neues Release".
+
+Eine Nebenwirkung: löschst du eine lokale Datei eines inaktiven Künstlers, wird sie erst beim nächsten fälligen Scan nachgeladen — oder sofort mit `sync --all` bzw. `sync --artist X`.
+
+### Überblick und Bypass
+
+```bash
+music-sync schedule            # Tabelle: letzter Scan, letztes Release, Intervall, nächster Scan
+music-sync sync --all          # Zeitplan ignorieren, alle Künstler prüfen
+music-sync sync --artist X     # Ein Künstler explizit — umgeht den Zeitplan ebenfalls
+music-sync sync --refresh      # API-Cache verwerfen — umgeht den Zeitplan ebenfalls
+```
+
+Anpassen über `scan_schedule` in der `config.yaml` (siehe `config.example.yaml`), abschalten mit `scan_schedule.enabled: false`. Playlists sind nicht Teil des Zeitplans — sie werden weiterhin bei jedem Lauf abgefragt, da sich ihr Inhalt jederzeit ändern kann.
+
+---
+
 ## Konfiguration (`config.yaml`)
 
 Siehe `config.example.yaml` für ein vollständiges Beispiel. Wichtigste Felder:
@@ -145,6 +186,7 @@ Siehe `config.example.yaml` für ein vollständiges Beispiel. Wichtigste Felder:
 | `fuzzy_match_threshold` | 85            | 0-100, höher = strenger                     |
 | `log_level`             | INFO          | DEBUG / INFO / WARNING / ERROR              |
 | `filter_keywords`       | siehe Default | Substrings die Songs überspringen lassen    |
+| `scan_schedule`         | aktiv         | Adaptive Rescan-Intervalle (siehe oben)     |
 | `artists`               | —             | Liste mit `name` + `ytmusic_id`/`youtube_url` |
 
 ---
