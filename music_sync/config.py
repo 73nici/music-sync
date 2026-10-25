@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,10 @@ def _default_cache_dir() -> Path:
     xdg = os.environ.get("XDG_CACHE_HOME")
     base = Path(xdg) if xdg else Path.home() / ".cache"
     return base / "music-sync"
+
+
+def _default_temp_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "music-sync"
 
 
 DEFAULT_FILTER_KEYWORDS = [
@@ -68,6 +73,9 @@ class Config:
     log_level: str = "INFO"
     filter_keywords: list[str] = field(default_factory=lambda: list(DEFAULT_FILTER_KEYWORDS))
     cache_dir: Path = field(default_factory=_default_cache_dir)
+    # Download/convert/tag happen here before one sequential copy into the library;
+    # ideally a tmpfs so the HDD only sees the finished file.
+    temp_dir: Path = field(default_factory=_default_temp_dir)
     scan_schedule: ScanScheduleConfig = field(default_factory=ScanScheduleConfig)
 
     @property
@@ -96,6 +104,7 @@ def load_config(path: Path) -> Config:
     download_dir = _required_path(raw, "download_dir")
 
     pot_provider_url = raw.get("pot_provider_url") or None
+    temp_dir = raw.get("temp_dir")
 
     artists_raw = raw.get("artists") or []
     playlists_raw = raw.get("playlists") or []
@@ -136,6 +145,7 @@ def load_config(path: Path) -> Config:
         log_level=str(raw.get("log_level", "INFO")).upper(),
         filter_keywords=filter_keywords,
         scan_schedule=_parse_scan_schedule(raw.get("scan_schedule")),
+        **({"temp_dir": Path(temp_dir).expanduser()} if temp_dir else {}),
     )
 
 

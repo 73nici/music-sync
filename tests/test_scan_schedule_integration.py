@@ -164,3 +164,40 @@ def test_failed_fetch_does_not_look_like_a_new_release(tmp_path, source):
     collect(config, db, ignore_schedule=True)
 
     assert db.load_scan_states()["dormant band"].last_release_at is None
+
+
+def test_library_is_only_scanned_when_an_artist_is_due(tmp_path, source):
+    config = make_config(tmp_path)
+    db = StateDB(config.state_db_path)
+    scans: list[int] = []
+
+    def library():
+        scans.append(1)
+        return {}
+
+    commands._collect_missing_tracks(config, library, db, None)
+    assert scans == [1]
+
+    commands._collect_missing_tracks(config, library, db, None)  # artist not due anymore
+    assert scans == [1]
+
+
+def test_known_skips_are_not_written_again(tmp_path, source, monkeypatch):
+    from music_sync.scanner import LocalTrack
+
+    config = make_config(tmp_path, enabled=False)
+    db = StateDB(config.state_db_path)
+    library = {
+        "dormant band": [
+            LocalTrack(artist="Dormant Band", title="Song v1", album=None, path=tmp_path / "x")
+        ]
+    }
+    writes: list[str] = []
+    original = db.record_skip
+    monkeypatch.setattr(
+        db, "record_skip", lambda video_id, *a: (writes.append(video_id), original(video_id, *a))
+    )
+
+    assert commands._collect_missing_tracks(config, library, db, None) == []
+    assert commands._collect_missing_tracks(config, library, db, None) == []
+    assert writes == ["v1"]  # second run: already recorded, no write (= no fsync)

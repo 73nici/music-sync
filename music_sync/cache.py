@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .db import connect
 from .logger import get_logger
 
 logger = get_logger("cache")
@@ -37,20 +38,22 @@ class ApiCache:
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
+        self._connection = connect(db_path)
         with self._conn() as c:
             c.executescript(SCHEMA)
 
+    def close(self) -> None:
+        self._connection.close()
+
     @contextmanager
-    def _conn(self):
-        conn = sqlite3.connect(self._db_path)
+    def _conn(self) -> Iterator[sqlite3.Connection]:
+        conn = self._connection
         try:
             yield conn
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-        finally:
-            conn.close()
 
     def get_album(self, browse_id: str, fetch_fn: Callable[[], Any], *, force: bool = False) -> Any:
         """Return the cached album payload for `browse_id`, fetching+storing on miss."""

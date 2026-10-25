@@ -34,5 +34,8 @@ ENV MUSIC_SYNC_CONFIG=/config/config.yaml \
 
 VOLUME ["/music", "/config", "/cache"]
 
-ENTRYPOINT ["/usr/bin/tini", "--", "music-sync", "--config", "/config/config.yaml"]
+# ionice (util-linux): niedrigste Best-Effort-I/O-Priorität, damit Streaming (z. B. Jellyfin)
+# auf derselben HDD Vorrang hat. Bewusst nicht -c3 (idle): bei Dauerlast würde der Lauf
+# aushungern und dabei die Lauf-Sperre halten. Wirkt mit BFQ und mq-deadline.
+ENTRYPOINT ["/usr/bin/tini", "--", "ionice", "-c2", "-n7", "music-sync", "--config", "/config/config.yaml"]
 CMD ["--help"]

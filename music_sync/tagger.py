@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from functools import lru_cache
 from pathlib import Path
 
 import requests
@@ -21,13 +22,19 @@ MIME_BY_EXT = {
 }
 
 
-def tag_file(file_path: Path, track: RemoteTrack) -> None:
-    """Write metadata + embed cover art into the downloaded .opus file."""
+_session: requests.Session | None = None
+
+
+def tag_file(file_path: Path, track: RemoteTrack) -> bool:
+    """Write metadata + embed cover art into the downloaded .opus file.
+
+    Returns True if the tags were saved (a missing cover alone doesn't count as failure).
+    """
     try:
         audio = OggOpus(file_path)
     except Exception as exc:
         logger.error("Failed to open %s for tagging: %s", file_path, exc)
-        return
+        return False
 
     audio["title"] = track.title
     audio["artist"] = track.artist
@@ -47,12 +54,12 @@ def tag_file(file_path: Path, track: RemoteTrack) -> None:
         audio.save()
     except Exception as exc:
         logger.error("Failed to save tags for %s: %s", file_path, exc)
+        return False
+    return True
 
 
 def _embed_cover(audio: OggOpus, cover_url: str) -> None:
-    response = requests.get(cover_url, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    data = response.content
+    data = _fetch_cover(cover_url)
 
     mime = _guess_mime(cover_url, data)
 
@@ -64,6 +71,17 @@ def _embed_cover(audio: OggOpus, cover_url: str) -> None:
 
     encoded = base64.b64encode(picture.write()).decode("ascii")
     audio["metadata_block_picture"] = [encoded]
+
+
+@lru_cache(maxsize=16)
+def _fetch_cover(cover_url: str) -> bytes:
+    """Tracks of one album share the cover URL — fetch it once per run."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+    response = _session.get(cover_url, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.content
 
 
 def _guess_mime(url: str, data: bytes) -> str:

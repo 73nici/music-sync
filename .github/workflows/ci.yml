@@ -116,7 +116,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Image smoke test
-        run: docker run --rm --entrypoint music-sync music-sync:ci --help
+        # Über den echten Entrypoint (tini + ionice), damit ein fehlendes ionice auffällt.
+        run: docker run --rm music-sync:ci --help
 
   security:
     name: Security Scan

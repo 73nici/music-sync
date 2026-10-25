@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import click
 
 from .config import Config, load_config
-from .logger import setup_logging
+from .lock import LockBusyError, run_lock
+from .logger import get_logger, setup_logging
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
@@ -15,6 +19,34 @@ def _load(ctx: click.Context) -> Config:
     cfg = load_config(config_path)
     setup_logging(cfg.log_file_path, cfg.log_level, to_stdout=ctx.obj["verbose"])
     return cfg
+
+
+@contextmanager
+def _exclusive(cfg: Config) -> Iterator[None]:
+    """Run lock for every command that writes state. A busy lock is not an error under
+    cron (the previous run is still working), so exit 0 there; 1 when run interactively.
+    """
+    from .scanner import LibraryShrunkError
+
+    try:
+        with run_lock(cfg.cache_dir):
+            yield
+    except LockBusyError as exc:
+        get_logger("cli").warning("%s — skipping this run", exc)
+        click.echo(f"Ein anderer music-sync-Lauf ist noch aktiv: {exc}", err=True)
+        sys.exit(1 if sys.stdin.isatty() else 0)
+    except LibraryShrunkError as exc:
+        get_logger("cli").error("%s", exc)
+        click.echo(f"Abbruch: {exc}", err=True)
+        sys.exit(1)
+
+
+RESCAN_OPTION = click.option(
+    "--rescan",
+    is_flag=True,
+    help="Bibliotheks-Cache ignorieren und alle Dateien neu einlesen "
+    "(akzeptiert auch eine stark geschrumpfte Bibliothek)",
+)
 
 
 @click.group()
@@ -46,12 +78,15 @@ def init(ctx: click.Context) -> None:
 
 
 @main.command()
+@RESCAN_OPTION
 @click.pass_context
-def scan(ctx: click.Context) -> None:
+def scan(ctx: click.Context, rescan: bool) -> None:
     """Lokale Musikbibliothek analysieren und Übersicht ausgeben."""
     from .commands import cmd_scan
 
-    cmd_scan(_load(ctx))
+    cfg = _load(ctx)
+    with _exclusive(cfg):
+        cmd_scan(cfg, rescan=rescan)
 
 
 @main.command()
@@ -68,20 +103,29 @@ def scan(ctx: click.Context) -> None:
     is_flag=True,
     help="Scan-Zeitplan ignorieren und alle Künstler prüfen",
 )
+@RESCAN_OPTION
 @click.pass_context
 def sync(
-    ctx: click.Context, artist_name: str | None, dry_run: bool, refresh: bool, all_artists: bool
+    ctx: click.Context,
+    artist_name: str | None,
+    dry_run: bool,
+    refresh: bool,
+    all_artists: bool,
+    rescan: bool,
 ) -> None:
     """Fehlende Songs der konfigurierten Künstler herunterladen."""
     from .commands import cmd_sync
 
-    cmd_sync(
-        _load(ctx),
-        artist_name=artist_name,
-        dry_run=dry_run,
-        refresh=refresh,
-        all_artists=all_artists,
-    )
+    cfg = _load(ctx)
+    with _exclusive(cfg):
+        cmd_sync(
+            cfg,
+            artist_name=artist_name,
+            dry_run=dry_run,
+            refresh=refresh,
+            all_artists=all_artists,
+            rescan=rescan,
+        )
 
 
 @main.command("list-missing")
@@ -97,14 +141,23 @@ def sync(
     is_flag=True,
     help="Scan-Zeitplan ignorieren und alle Künstler prüfen",
 )
+@RESCAN_OPTION
 @click.pass_context
 def list_missing(
-    ctx: click.Context, artist_name: str | None, refresh: bool, all_artists: bool
+    ctx: click.Context, artist_name: str | None, refresh: bool, all_artists: bool, rescan: bool
 ) -> None:
     """Auflisten welche Songs heruntergeladen würden."""
     from .commands import cmd_list_missing
 
-    cmd_list_missing(_load(ctx), artist_name=artist_name, refresh=refresh, all_artists=all_artists)
+    cfg = _load(ctx)
+    with _exclusive(cfg):
+        cmd_list_missing(
+            cfg,
+            artist_name=artist_name,
+            refresh=refresh,
+            all_artists=all_artists,
+            rescan=rescan,
+        )
 
 
 @main.command()
@@ -122,7 +175,9 @@ def retry_failed(ctx: click.Context) -> None:
     """Fehlgeschlagene Downloads erneut versuchen."""
     from .commands import cmd_retry_failed
 
-    cmd_retry_failed(_load(ctx))
+    cfg = _load(ctx)
+    with _exclusive(cfg):
+        cmd_retry_failed(cfg)
 
 
 if __name__ == "__main__":
