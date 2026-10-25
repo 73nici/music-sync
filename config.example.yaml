@@ -5,9 +5,6 @@
 music_dir: /home/johncena/Musik
 download_dir: /home/johncena/Musik
 
-# Optional: YouTube Music Premium Cookies
-# cookies_file: /home/johncena/.config/music-sync/cookies.txt
-
 # Optional: bgutil PO-Token-Provider (für authentischere Requests an YouTube)
 # Lokal:           http://127.0.0.1:4416
 # Docker-Compose:  http://pot-provider:4416

@@ -88,18 +88,10 @@ docker compose run --rm music-sync sync --dry-run
 | Host-Pfad        | Container-Pfad | Inhalt                            |
 |------------------|----------------|-----------------------------------|
 | `${MUSIC_DIR}`   | `/music`       | Musikbibliothek (Quelle + Ziel)   |
-| `${CONFIG_DIR}`  | `/config`      | `config.yaml`, optional `cookies.txt` |
+| `${CONFIG_DIR}`  | `/config`      | `config.yaml`                     |
 | `${CACHE_DIR}`   | `/cache`       | SQLite-State und rotierte Logs    |
 
 > **Hinweis:** Trage in `config.yaml` für `music_dir` und `download_dir` die **Container-Pfade** ein (`/music`), nicht die Host-Pfade.
-
-### YT Music Premium Cookies
-
-Cookie-Datei nach `${CONFIG_DIR}/cookies.txt` legen und in `config.yaml`:
-
-```yaml
-cookies_file: /config/cookies.txt
-```
 
 ### PoT-Token-Provider
 
@@ -181,7 +173,6 @@ Siehe `config.example.yaml` für ein vollständiges Beispiel. Wichtigste Felder:
 |-------------------------|---------------|---------------------------------------------|
 | `music_dir`             | —             | Pfad zur lokalen Bibliothek                 |
 | `download_dir`          | —             | Zielpfad für Downloads                      |
-| `cookies_file`          | —             | Optionale YT Music Premium Cookies          |
 | `min_free_space_mb`     | 500           | Min. freier Speicher vor Download           |
 | `fuzzy_match_threshold` | 85            | 0-100, höher = strenger                     |
 | `log_level`             | INFO          | DEBUG / INFO / WARNING / ERROR              |

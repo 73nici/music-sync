@@ -28,13 +28,6 @@ def run_wizard(config_path: Path) -> None:
         default=str(music_dir),
     )
 
-    cookies_file: Path | None = None
-    if click.confirm("YouTube Music Premium Cookies einrichten?", default=False):
-        cookies_file = click.prompt(
-            "Pfad zur cookies.txt",
-            type=click.Path(dir_okay=False, path_type=Path),
-        )
-
     pot_provider_url: str | None = None
     if click.confirm(
         "bgutil PO-Token-Provider nutzen (authentischere YouTube-Requests)?",
@@ -84,8 +77,6 @@ def run_wizard(config_path: Path) -> None:
         "filter_keywords": list(DEFAULT_FILTER_KEYWORDS),
         "artists": artists,
     }
-    if cookies_file:
-        data["cookies_file"] = str(cookies_file)
     if pot_provider_url:
         data["pot_provider_url"] = pot_provider_url
 

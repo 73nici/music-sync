@@ -27,7 +27,7 @@ services:
     volumes:
       # Musikordner (gleichzeitig Quelle für Scan und Ziel für Downloads).
       - ${MUSIC_DIR:-./music}:/music
-      # Config-Verzeichnis (enthält config.yaml + optional cookies.txt).
+      # Config-Verzeichnis (enthält config.yaml).
       - ${CONFIG_DIR:-./config}:/config
       # Cache (SQLite-State + rotierte Logs).
       - ${CACHE_DIR:-./cache}:/cache

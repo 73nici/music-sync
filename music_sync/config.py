@@ -62,7 +62,6 @@ class Config:
     download_dir: Path
     artists: list[ArtistConfig]
     playlists: list[PlaylistConfig] = field(default_factory=list)
-    cookies_file: Path | None = None
     pot_provider_url: str | None = None
     min_free_space_mb: int = 500
     fuzzy_match_threshold: int = 85
@@ -95,9 +94,6 @@ def load_config(path: Path) -> Config:
 
     music_dir = _required_path(raw, "music_dir")
     download_dir = _required_path(raw, "download_dir")
-
-    cookies_file = raw.get("cookies_file")
-    cookies_path = Path(cookies_file).expanduser() if cookies_file else None
 
     pot_provider_url = raw.get("pot_provider_url") or None
 
@@ -134,7 +130,6 @@ def load_config(path: Path) -> Config:
         download_dir=download_dir,
         artists=artists,
         playlists=playlists,
-        cookies_file=cookies_path,
         pot_provider_url=pot_provider_url,
         min_free_space_mb=int(raw.get("min_free_space_mb", 500)),
         fuzzy_match_threshold=int(raw.get("fuzzy_match_threshold", 85)),

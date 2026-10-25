@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import yt_dlp
 
 from .filters import is_studio_version
@@ -14,9 +12,8 @@ logger = get_logger("source_youtube")
 class YouTubeChannelSource:
     """Fallback source for artists not available on YT Music: scrape their YT channel."""
 
-    def __init__(self, filter_keywords: list[str], cookies_file: Path | None = None) -> None:
+    def __init__(self, filter_keywords: list[str]) -> None:
         self._filter_keywords = filter_keywords
-        self._cookies_file = cookies_file
 
     def fetch_artist_tracks(self, channel_url: str, artist_name: str) -> list[RemoteTrack]:
         opts: dict = {
@@ -26,8 +23,6 @@ class YouTubeChannelSource:
             "extract_flat": True,
             "playlistend": 500,
         }
-        if self._cookies_file and self._cookies_file.exists():
-            opts["cookiefile"] = str(self._cookies_file)
 
         target_url = channel_url.rstrip("/")
         if not target_url.endswith("/videos"):

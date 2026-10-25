@@ -177,7 +177,6 @@ def cmd_retry_failed(config: Config) -> None:
 
     artist_lookup = {a.name.lower(): a for a in config.artists}
     downloader = Downloader(
-        cookies_file=config.cookies_file,
         min_free_space_mb=config.min_free_space_mb,
         pot_provider_url=config.pot_provider_url,
     )
@@ -215,9 +214,7 @@ def _collect_missing_tracks(
 
     cache = ApiCache(config.api_cache_path)
     ytmusic = YTMusicSource(filter_keywords=config.filter_keywords, cache=cache)
-    yt_fallback = YouTubeChannelSource(
-        filter_keywords=config.filter_keywords, cookies_file=config.cookies_file
-    )
+    yt_fallback = YouTubeChannelSource(filter_keywords=config.filter_keywords)
 
     now = utcnow()
     tiers = config.scan_schedule.tiers
@@ -429,7 +426,6 @@ def _release_priority(track: RemoteTrack) -> tuple[int, int, int]:
 
 def _download_missing(config: Config, db: StateDB, missing: list[MissingTrack]) -> None:
     downloader = Downloader(
-        cookies_file=config.cookies_file,
         min_free_space_mb=config.min_free_space_mb,
         pot_provider_url=config.pot_provider_url,
     )

@@ -29,11 +29,9 @@ class DownloadResult:
 class Downloader:
     def __init__(
         self,
-        cookies_file: Path | None = None,
         min_free_space_mb: int = 500,
         pot_provider_url: str | None = None,
     ) -> None:
-        self._cookies_file = cookies_file
         self._min_free_bytes = min_free_space_mb * 1024 * 1024
         self._pot_provider_url = pot_provider_url
 
@@ -65,9 +63,6 @@ class Downloader:
             "retries": 3,
             "fragment_retries": 3,
         }
-
-        if self._cookies_file and self._cookies_file.exists():
-            opts["cookiefile"] = str(self._cookies_file)
 
         if self._pot_provider_url:
             opts["extractor_args"] = {
