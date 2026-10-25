@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -47,6 +48,33 @@ CHANNEL_STATE_MIGRATIONS: tuple[tuple[str, str], ...] = (
 MAX_RETRIES = 3
 
 
+def connect(db_path: Path) -> sqlite3.Connection:
+    """Open a SQLite connection tuned for a spinning disk.
+
+    WAL + synchronous=NORMAL turns the per-commit fsyncs of the default rollback journal
+    into (almost) none — only checkpoints sync. A power cut may lose the last commits but
+    never corrupts the DB, and a lost download record is harmless: the target file
+    already exists, so the next run skips it.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+@dataclass
+class DownloadIndex:
+    """All video_ids of the downloads table, loaded once per run instead of one query each.
+
+    `known`: tracks never to be fetched again (success, or failed too often).
+    `recorded`: every video_id with any row — a skip for these would be a no-op write.
+    """
+
+    known: set[str] = field(default_factory=set)
+    recorded: set[str] = field(default_factory=set)
+
+
 @dataclass(frozen=True)
 class FailedRecord:
     video_id: str
@@ -57,23 +85,55 @@ class FailedRecord:
 
 
 class StateDB:
+    """State DB with one connection per instance (= per run).
+
+    Every write commits on its own unless it runs inside `batch()`, which groups all
+    writes into one transaction (used per artist).
+    """
+
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
+        self._connection = connect(db_path)
+        self._batch_depth = 0
         self._init_schema()
 
+    def close(self) -> None:
+        self._connection.close()
+
+    def __enter__(self) -> StateDB:
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
     @contextmanager
-    def _conn(self):
-        conn = sqlite3.connect(self._db_path)
-        conn.row_factory = sqlite3.Row
+    def _conn(self) -> Iterator[sqlite3.Connection]:
+        conn = self._connection
+        if self._batch_depth:
+            yield conn
+            return
         try:
             yield conn
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-        finally:
-            conn.close()
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Group all writes inside the block into a single commit."""
+        self._batch_depth += 1
+        try:
+            yield
+        except Exception:
+            self._batch_depth -= 1
+            if not self._batch_depth:
+                self._connection.rollback()
+            raise
+        self._batch_depth -= 1
+        if not self._batch_depth:
+            self._connection.commit()
 
     def _init_schema(self) -> None:
         with self._conn() as c:
@@ -84,6 +144,16 @@ class StateDB:
                     c.execute(f"ALTER TABLE channel_state ADD COLUMN {column} {coltype}")
                     logger.info("Migrated channel_state: added column %s", column)
 
+    def load_download_index(self) -> DownloadIndex:
+        index = DownloadIndex()
+        with self._conn() as c:
+            rows = c.execute("SELECT video_id, status, retry_count FROM downloads").fetchall()
+        for row in rows:
+            index.recorded.add(row["video_id"])
+            if _is_final(row["status"], row["retry_count"]):
+                index.known.add(row["video_id"])
+        return index
+
     def is_known(self, video_id: str) -> bool:
         with self._conn() as c:
             row = c.execute(
@@ -92,11 +162,7 @@ class StateDB:
             ).fetchone()
         if row is None:
             return False
-        if row["status"] == "success":
-            return True
-        if row["status"] == "failed" and row["retry_count"] >= MAX_RETRIES:
-            return True
-        return False
+        return _is_final(row["status"], row["retry_count"])
 
     def record_success(
         self,
@@ -239,6 +305,11 @@ class StateDB:
                 "SELECT status, COUNT(*) as n FROM downloads GROUP BY status"
             ).fetchall()
         return {row["status"]: row["n"] for row in rows}
+
+
+def _is_final(status: str, retry_count: int) -> bool:
+    """'skipped' is deliberately not final: a deleted local file gets downloaded again."""
+    return status == "success" or (status == "failed" and retry_count >= MAX_RETRIES)
 
 
 def _parse_ts(value: str | None) -> datetime | None:

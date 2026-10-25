@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, process
 
 from .scanner import LocalTrack
 
@@ -19,6 +20,7 @@ class MatchResult:
     matched_track: LocalTrack | None
 
 
+@lru_cache(maxsize=65536)
 def normalize(text: str) -> str:
     """Lowercase, strip parens/brackets, remove non-alphanumeric, collapse whitespace."""
     lowered = text.lower()
@@ -43,16 +45,18 @@ def is_song_in_library(
     if not norm_title:
         return MatchResult(is_match=False, score=0, matched_track=None)
 
-    best_score = 0
-    best_track: LocalTrack | None = None
-    for track in tracks:
-        norm_existing = normalize(track.title)
-        if not norm_existing:
-            continue
-        score = int(fuzz.token_set_ratio(norm_title, norm_existing))
-        if score > best_score:
-            best_score = score
-            best_track = track
+    # normalize() is cached, so local titles are only normalized once per run; the
+    # scoring loop itself runs in rapidfuzz's C code. Ties keep the first best match.
+    candidates = [(normalize(track.title), track) for track in tracks]
+    candidates = [(norm, track) for norm, track in candidates if norm]
+    best = process.extractOne(
+        norm_title,
+        [norm for norm, _ in candidates],
+        scorer=fuzz.token_set_ratio,
+        processor=None,
+    )
+    best_score = int(best[1]) if best else 0
+    best_track = candidates[best[2]][1] if best else None
 
     return MatchResult(
         is_match=best_score >= threshold,

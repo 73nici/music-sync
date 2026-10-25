@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import yt_dlp
-
 from .filters import is_studio_version
 from .logger import get_logger
 from .source_ytmusic import RemoteTrack
@@ -27,6 +25,8 @@ class YouTubeChannelSource:
         target_url = channel_url.rstrip("/")
         if not target_url.endswith("/videos"):
             target_url = f"{target_url}/videos"
+
+        import yt_dlp  # heavy import (~850 files): only when actually needed
 
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:

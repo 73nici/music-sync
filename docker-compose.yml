@@ -31,5 +31,12 @@ services:
       - ${CONFIG_DIR:-./config}:/config
       # Cache (SQLite-State + rotierte Logs).
       - ${CACHE_DIR:-./cache}:/cache
+      # RAM-Disk für Download, Konvertierung und Tagging: Die HDD sieht nur die fertige
+      # Datei. Docker begrenzt tmpfs nicht von selbst, daher die feste Größe (1 GiB).
+      # Der Inhalt zählt zum Speicher des Containers.
+      - type: tmpfs
+        target: /tmp/music-sync
+        tmpfs:
+          size: 1073741824
     # Default-Befehl: Hilfe ausgeben. Für tatsächliche Aktion: `docker compose run --rm music-sync sync`.
     command: ["--help"]

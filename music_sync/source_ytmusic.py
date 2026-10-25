@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ytmusicapi import YTMusic
-
 from .cache import ApiCache
 from .filters import is_studio_version
 from .logger import get_logger
@@ -29,11 +27,24 @@ class RemoteTrack:
         return f"https://music.youtube.com/watch?v={self.video_id}"
 
 
+def YTMusic(*args: Any, **kwargs: Any) -> Any:  # noqa: N802 - stands in for the class
+    """Import ytmusicapi only when a client is actually needed (startup reads from HDD)."""
+    from ytmusicapi import YTMusic as _YTMusic
+
+    return _YTMusic(*args, **kwargs)
+
+
 class YTMusicSource:
     def __init__(self, filter_keywords: list[str], cache: ApiCache | None = None) -> None:
-        self._client = YTMusic()
+        self._client_instance: Any = None
         self._filter_keywords = filter_keywords
         self._cache = cache
+
+    @property
+    def _client(self) -> Any:
+        if self._client_instance is None:
+            self._client_instance = YTMusic()
+        return self._client_instance
 
     def fetch_playlist_tracks(
         self,

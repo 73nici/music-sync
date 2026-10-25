@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 
 from rich.console import Console
@@ -17,12 +20,12 @@ from rich.table import Table
 
 from .cache import ApiCache
 from .config import ArtistConfig, Config, PlaylistConfig
-from .db import StateDB
-from .downloader import DiskSpaceError, Downloader, DownloadError
+from .db import DownloadIndex, StateDB
+from .downloader import DiskSpaceError, Downloader, DownloadError, TargetExistsError
 from .filters import build_playlist_target_path, build_target_path
 from .logger import get_logger
 from .matcher import is_song_in_library, normalize
-from .scanner import scan_library
+from .scanner import LibraryCache, LocalTrack, scan_library
 from .schedule import (
     ArtistScanState,
     apply_scan_result,
@@ -60,8 +63,16 @@ class MissingTrack:
             raise ValueError("MissingTrack needs exactly one of artist_config or playlist_config")
 
 
-def cmd_scan(config: Config) -> None:
-    library = scan_library(config.music_dir)
+Library = dict[str, list[LocalTrack]]
+
+
+def _scan(config: Config, library_cache: LibraryCache, rescan: bool) -> Library:
+    return scan_library(config.music_dir, cache=library_cache, rescan=rescan)
+
+
+def cmd_scan(config: Config, rescan: bool = False) -> None:
+    with closing(LibraryCache(config.state_db_path)) as library_cache:
+        library = _scan(config, library_cache, rescan)
     table = Table(title=f"Lokale Musikbibliothek: {config.music_dir}")
     table.add_column("Künstler")
     table.add_column("Songs", justify="right")
@@ -79,27 +90,32 @@ def cmd_sync(
     dry_run: bool,
     refresh: bool = False,
     all_artists: bool = False,
+    rescan: bool = False,
 ) -> None:
-    library = scan_library(config.music_dir)
-    db = StateDB(config.state_db_path)
+    _require_music_dir(config)
+    with (
+        StateDB(config.state_db_path) as db,
+        closing(LibraryCache(config.state_db_path)) as library_cache,
+    ):
+        # Only walk the library once an artist is actually due.
+        library = cache(lambda: _scan(config, library_cache, rescan))
+        missing = _collect_missing_tracks(
+            config, library, db, artist_name, refresh=refresh, ignore_schedule=all_artists
+        )
+        missing += _collect_playlist_tracks(config, db, artist_name)
 
-    missing = _collect_missing_tracks(
-        config, library, db, artist_name, refresh=refresh, ignore_schedule=all_artists
-    )
-    missing += _collect_playlist_tracks(config, db, artist_name)
+        if not missing:
+            console.print("[green]Keine fehlenden Songs gefunden.[/green]")
+            return
 
-    if not missing:
-        console.print("[green]Keine fehlenden Songs gefunden.[/green]")
-        return
+        console.print(f"[bold]{len(missing)} fehlende Songs identifiziert.[/bold]")
 
-    console.print(f"[bold]{len(missing)} fehlende Songs identifiziert.[/bold]")
+        if dry_run:
+            _print_missing_table(missing)
+            console.print("\n[yellow]Dry-Run: nichts heruntergeladen.[/yellow]")
+            return
 
-    if dry_run:
-        _print_missing_table(missing)
-        console.print("\n[yellow]Dry-Run: nichts heruntergeladen.[/yellow]")
-        return
-
-    _download_missing(config, db, missing)
+        _download_missing(config, db, library_cache, missing)
 
 
 def cmd_list_missing(
@@ -107,13 +123,18 @@ def cmd_list_missing(
     artist_name: str | None,
     refresh: bool = False,
     all_artists: bool = False,
+    rescan: bool = False,
 ) -> None:
-    library = scan_library(config.music_dir)
-    db = StateDB(config.state_db_path)
-    missing = _collect_missing_tracks(
-        config, library, db, artist_name, refresh=refresh, ignore_schedule=all_artists
-    )
-    missing += _collect_playlist_tracks(config, db, artist_name)
+    _require_music_dir(config)
+    with (
+        StateDB(config.state_db_path) as db,
+        closing(LibraryCache(config.state_db_path)) as library_cache,
+    ):
+        library = cache(lambda: _scan(config, library_cache, rescan))
+        missing = _collect_missing_tracks(
+            config, library, db, artist_name, refresh=refresh, ignore_schedule=all_artists
+        )
+        missing += _collect_playlist_tracks(config, db, artist_name)
     if not missing:
         console.print("[green]Keine fehlenden Songs.[/green]")
         return
@@ -121,10 +142,16 @@ def cmd_list_missing(
     console.print(f"\nGesamt: {len(missing)} fehlende Songs")
 
 
+def _require_music_dir(config: Config) -> None:
+    """Fail fast on a missing mount, even if the lazy library scan never runs."""
+    if not config.music_dir.exists():
+        raise FileNotFoundError(f"Music directory does not exist: {config.music_dir}")
+
+
 def cmd_schedule(config: Config) -> None:
     """Show when each artist was last scanned and when the next scan is due."""
-    db = StateDB(config.state_db_path)
-    states = db.load_scan_states()
+    with StateDB(config.state_db_path) as db:
+        states = db.load_scan_states()
     now = utcnow()
     tiers = config.scan_schedule.tiers
 
@@ -169,17 +196,21 @@ def _fmt_ago(moment: datetime | None, now: datetime) -> str:
 
 
 def cmd_retry_failed(config: Config) -> None:
-    db = StateDB(config.state_db_path)
+    with (
+        StateDB(config.state_db_path) as db,
+        closing(LibraryCache(config.state_db_path)) as library_cache,
+    ):
+        _retry_failed(config, db, library_cache)
+
+
+def _retry_failed(config: Config, db: StateDB, library_cache: LibraryCache) -> None:
     failed = db.list_failed()
     if not failed:
         console.print("[green]Keine fehlgeschlagenen Downloads zum Retry.[/green]")
         return
 
     artist_lookup = {a.name.lower(): a for a in config.artists}
-    downloader = Downloader(
-        min_free_space_mb=config.min_free_space_mb,
-        pot_provider_url=config.pot_provider_url,
-    )
+    downloader = _make_downloader(config)
 
     for record in failed:
         artist_cfg = artist_lookup.get(record.artist.lower())
@@ -198,23 +229,47 @@ def cmd_retry_failed(config: Config) -> None:
             cover_url=None,
         )
         _download_single(
-            config, db, downloader, MissingTrack(remote=remote, artist_config=artist_cfg)
+            config,
+            db,
+            library_cache,
+            downloader,
+            MissingTrack(remote=remote, artist_config=artist_cfg),
         )
 
 
 def _collect_missing_tracks(
     config: Config,
-    library: dict,
+    library: Library | Callable[[], Library],
     db: StateDB,
     artist_filter: str | None,
     refresh: bool = False,
     ignore_schedule: bool = False,
 ) -> list[MissingTrack]:
+    """`library` may be a callable so the (HDD-heavy) scan only runs if an artist is due."""
+    api_cache = ApiCache(config.api_cache_path)
+    try:
+        return _collect_artist_tracks(
+            config, library, db, artist_filter, api_cache, refresh, ignore_schedule
+        )
+    finally:
+        if api_cache is not None:
+            api_cache.close()
+
+
+def _collect_artist_tracks(
+    config: Config,
+    library: Library | Callable[[], Library],
+    db: StateDB,
+    artist_filter: str | None,
+    api_cache: ApiCache,
+    refresh: bool,
+    ignore_schedule: bool,
+) -> list[MissingTrack]:
     missing: list[MissingTrack] = []
 
-    cache = ApiCache(config.api_cache_path)
-    ytmusic = YTMusicSource(filter_keywords=config.filter_keywords, cache=cache)
+    ytmusic = YTMusicSource(filter_keywords=config.filter_keywords, cache=api_cache)
     yt_fallback = YouTubeChannelSource(filter_keywords=config.filter_keywords)
+    index = db.load_download_index()
 
     now = utcnow()
     tiers = config.scan_schedule.tiers
@@ -250,29 +305,46 @@ def _collect_missing_tracks(
             source, source_id = "youtube", artist_cfg.youtube_url
             remote_tracks = yt_fallback.fetch_artist_tracks(artist_cfg.youtube_url, artist_cfg.name)
 
-        _record_scan(db, state, remote_tracks, source, source_id, now)
-
-        for remote in _dedup_releases(remote_tracks):
-            if db.is_known(remote.video_id):
-                continue
-            result = is_song_in_library(
-                title=remote.title,
-                artist=artist_cfg.name,
-                library=library,
-                threshold=config.fuzzy_match_threshold,
-            )
-            if result.is_match:
-                db.record_skip(remote.video_id, artist_cfg.name, remote.title, remote.album)
-                logger.debug(
-                    "Skip (lokal vorhanden, score=%d): %s — %s",
-                    result.score,
-                    artist_cfg.name,
-                    remote.title,
-                )
-                continue
-            missing.append(MissingTrack(remote=remote, artist_config=artist_cfg))
+        local = library() if callable(library) else library
+        # One commit per artist instead of one per row (each commit used to cost fsyncs).
+        with db.batch():
+            _record_scan(db, state, remote_tracks, source, source_id, now)
+            missing += _missing_for_artist(config, db, index, local, artist_cfg, remote_tracks)
 
     _report_skipped(skipped, now)
+    return missing
+
+
+def _missing_for_artist(
+    config: Config,
+    db: StateDB,
+    index: DownloadIndex,
+    library: Library,
+    artist_cfg: ArtistConfig,
+    remote_tracks: list[RemoteTrack],
+) -> list[MissingTrack]:
+    missing: list[MissingTrack] = []
+    for remote in _dedup_releases(remote_tracks):
+        if remote.video_id in index.known:
+            continue
+        result = is_song_in_library(
+            title=remote.title,
+            artist=artist_cfg.name,
+            library=library,
+            threshold=config.fuzzy_match_threshold,
+        )
+        if result.is_match:
+            if remote.video_id not in index.recorded:
+                db.record_skip(remote.video_id, artist_cfg.name, remote.title, remote.album)
+                index.recorded.add(remote.video_id)
+            logger.debug(
+                "Skip (lokal vorhanden, score=%d): %s — %s",
+                result.score,
+                artist_cfg.name,
+                remote.title,
+            )
+            continue
+        missing.append(MissingTrack(remote=remote, artist_config=artist_cfg))
     return missing
 
 
@@ -319,6 +391,7 @@ def _collect_playlist_tracks(
         return missing
 
     ytmusic = YTMusicSource(filter_keywords=config.filter_keywords)
+    index = db.load_download_index()
 
     for playlist_cfg in config.playlists:
         if artist_filter and (playlist_cfg.artist or "").lower() != artist_filter.lower():
@@ -332,7 +405,7 @@ def _collect_playlist_tracks(
         )
 
         for remote in _dedup_releases(tracks):
-            if db.is_known(remote.video_id):
+            if remote.video_id in index.known:
                 continue
             missing.append(MissingTrack(remote=remote, playlist_config=playlist_cfg))
 
@@ -424,11 +497,18 @@ def _release_priority(track: RemoteTrack) -> tuple[int, int, int]:
     return (has_track, has_album, year_score)
 
 
-def _download_missing(config: Config, db: StateDB, missing: list[MissingTrack]) -> None:
-    downloader = Downloader(
+def _make_downloader(config: Config) -> Downloader:
+    return Downloader(
+        temp_dir=config.temp_dir,
         min_free_space_mb=config.min_free_space_mb,
         pot_provider_url=config.pot_provider_url,
     )
+
+
+def _download_missing(
+    config: Config, db: StateDB, library_cache: LibraryCache, missing: list[MissingTrack]
+) -> None:
+    downloader = _make_downloader(config)
     success = 0
     failed = 0
 
@@ -443,7 +523,7 @@ def _download_missing(config: Config, db: StateDB, missing: list[MissingTrack]) 
         task = progress.add_task("Downloading", total=len(missing))
         for item in missing:
             progress.update(task, description=f"{item.remote.artist} — {item.remote.title}")
-            ok = _download_single(config, db, downloader, item)
+            ok = _download_single(config, db, library_cache, downloader, item)
             if ok:
                 success += 1
             else:
@@ -456,6 +536,7 @@ def _download_missing(config: Config, db: StateDB, missing: list[MissingTrack]) 
 def _download_single(
     config: Config,
     db: StateDB,
+    library_cache: LibraryCache,
     downloader: Downloader,
     item: MissingTrack,
 ) -> bool:
@@ -468,8 +549,19 @@ def _download_single(
         db.record_skip(remote.video_id, db_artist, remote.title, remote.album)
         return True
 
+    def tag(path: Path) -> bool:
+        try:
+            return tag_file(path, remote)
+        except Exception as exc:
+            logger.warning("Tagging failed for %s: %s", path, exc)
+            return False
+
     try:
-        result = downloader.download(remote, target)
+        result = downloader.download(remote, target, tag=tag)
+    except TargetExistsError as exc:
+        logger.info("%s", exc)
+        db.record_skip(remote.video_id, db_artist, remote.title, remote.album)
+        return True
     except DiskSpaceError as exc:
         logger.error("Disk space error: %s", exc)
         console.print(f"[red]Disk-Space erschöpft: {exc}[/red]")
@@ -480,12 +572,12 @@ def _download_single(
         db.record_failure(remote.video_id, db_artist, remote.title, remote.album, str(exc))
         return False
 
-    try:
-        tag_file(result.file_path, remote)
-    except Exception as exc:
-        logger.warning("Tagging failed for %s: %s", result.file_path, exc)
-
     db.record_success(remote.video_id, db_artist, remote.title, remote.album, result.file_path)
+    if result.tagged and result.file_path.is_relative_to(config.music_dir):
+        # Exactly the values tag_file wrote — the next scan needn't open the file.
+        library_cache.record_file(
+            config.music_dir, result.file_path, remote.artist, remote.title, remote.album
+        )
     logger.info("Downloaded: %s — %s → %s", db_artist, remote.title, result.file_path)
     return True
 

@@ -10,6 +10,11 @@ download_dir: /home/johncena/Musik
 # Docker-Compose:  http://pot-provider:4416
 # pot_provider_url: http://127.0.0.1:4416
 
+# Optional: Arbeitsverzeichnis für Download, Konvertierung und Tagging, bevor die fertige
+# Datei in die Bibliothek kopiert wird. Idealerweise eine RAM-Disk (tmpfs).
+# Default: <System-Temp>/music-sync (im Docker-Image: /tmp/music-sync, tmpfs aus der Compose-Datei)
+# temp_dir: /tmp/music-sync
+
 # Verhalten
 min_free_space_mb: 500
 fuzzy_match_threshold: 85

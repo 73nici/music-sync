@@ -14,6 +14,7 @@ CLI-Tool, das einen lokalen Musik-Ordner analysiert und fehlende Songs der dort 
 - Bettet Cover Art aus YT Music ein
 - Ablage: `Künstler/Album/01 - Titel.opus`, Fallback `Künstler/Singles/Titel.opus`
 - Adaptiver Scan-Zeitplan: nur Künstler mit frischen Releases werden häufig abgefragt
+- HDD-schonend: Bibliotheks-Cache (nur neue/geänderte Dateien werden gelesen), gebündelte SQLite-Schreibzugriffe, Downloads auf RAM-Disk
 - SQLite-Statedb gegen wiederholte Versuche
 - Retry-Logik (3 Versuche), `--dry-run`, rotierte Logs
 - Docker-fähig für einfaches Deployment
@@ -51,7 +52,16 @@ music-sync sync --dry-run    # Vorschau ohne Download
 music-sync schedule          # Wann wird welcher Künstler wieder gescannt?
 music-sync list-missing      # Was würde geladen?
 music-sync retry-failed      # Failed neu versuchen
+music-sync scan --rescan     # Bibliotheks-Cache ignorieren, alle Dateien neu einlesen
 ```
+
+`scan`, `sync`, `list-missing` und `retry-failed` laufen nie parallel (Sperrdatei `music-sync.lock` im Cache-Verzeichnis). Ein zweiter Lauf beendet sich sofort — im Cron mit Exit-Code 0, interaktiv mit 1.
+
+### Bibliotheks-Cache
+
+Die Tags aller Dateien liegen in `state.db` (Tabelle `library_files`). Ein Lauf öffnet nur Dateien, deren Größe, `mtime` oder `ctime` sich geändert hat; alles andere kommt aus dem Cache. Die Bibliothek wird nur gescannt, wenn laut Zeitplan mindestens ein Künstler fällig ist.
+
+Findet ein Scan weniger als die Hälfte der gecachten Dateien (z. B. Platte nicht eingehängt), bricht er ab, statt den Cache zu leeren und alles neu herunterzuladen. Ist die Bibliothek tatsächlich so stark geschrumpft: einmal mit `--rescan` laufen lassen.
 
 ---
 
@@ -88,6 +98,9 @@ docker compose run --rm music-sync sync --dry-run
 | `${MUSIC_DIR}`   | `/music`       | Musikbibliothek (Quelle + Ziel)   |
 | `${CONFIG_DIR}`  | `/config`      | `config.yaml`                     |
 | `${CACHE_DIR}`   | `/cache`       | SQLite-State und rotierte Logs    |
+| (tmpfs, 1 GiB)   | `/tmp/music-sync` | Arbeitsverzeichnis für Downloads (RAM) |
+
+Downloads werden auf der RAM-Disk geladen, konvertiert und getaggt und danach in einem Rutsch in die Bibliothek kopiert (versteckt als `.<Name>.opus.partial`, dann atomar umbenannt). Medienserver wie Jellyfin sehen dadurch nur fertige Dateien. Der Container läuft mit `ionice -c2 -n7`, damit Streaming vom selben Laufwerk Vorrang hat.
 
 > **Hinweis:** Trage in `config.yaml` für `music_dir` und `download_dir` die **Container-Pfade** ein (`/music`), nicht die Host-Pfade.
 
@@ -172,6 +185,7 @@ Siehe `config.example.yaml` für ein vollständiges Beispiel. Wichtigste Felder:
 | `music_dir`             | —             | Pfad zur lokalen Bibliothek                 |
 | `download_dir`          | —             | Zielpfad für Downloads                      |
 | `min_free_space_mb`     | 500           | Min. freier Speicher vor Download           |
+| `temp_dir`              | `<tmp>/music-sync` | Arbeitsverzeichnis für Downloads (ideal: tmpfs) |
 | `fuzzy_match_threshold` | 85            | 0-100, höher = strenger                     |
 | `log_level`             | INFO          | DEBUG / INFO / WARNING / ERROR              |
 | `filter_keywords`       | siehe Default | Substrings die Songs überspringen lassen    |

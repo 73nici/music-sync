@@ -48,3 +48,36 @@ def test_feat_normalization():
     lib = make_library("Eminem", ["Stan ft. Dido"])
     result = is_song_in_library("Stan (feat. Dido)", "Eminem", lib, threshold=80)
     assert result.is_match is True
+
+
+def _reference_match(title: str, artist: str, library, threshold: int):
+    """The former pure-Python loop, as reference for the extractOne version."""
+    from rapidfuzz import fuzz
+
+    norm_title = normalize(title)
+    best_score, best_track = 0, None
+    for track in library.get(artist.lower(), []):
+        norm_existing = normalize(track.title)
+        if not norm_existing:
+            continue
+        score = int(fuzz.token_set_ratio(norm_title, norm_existing))
+        if score > best_score:
+            best_score, best_track = score, track
+    return best_score, best_track if best_score >= threshold else None
+
+
+def test_matches_former_implementation():
+    local = ["Numb", "Numb (Live)", "In the End", "(Intro)", "Faint", "Papercut", "Crawling"]
+    lib = make_library("Linkin Park", local)
+    remote = ["Numb", "In The End (Remastered)", "Crawling [HD]", "One Step Closer", "Faint"]
+    for title in remote:
+        result = is_song_in_library(title, "Linkin Park", lib, threshold=85)
+        score, track = _reference_match(title, "Linkin Park", lib, threshold=85)
+        assert (result.score, result.matched_track) == (score, track)
+
+
+def test_only_empty_local_titles_yield_no_match():
+    lib = make_library("Artist", ["(Intro)", "[Bonus]"])
+    result = is_song_in_library("Intro", "Artist", lib, threshold=50)
+    assert result.is_match is False
+    assert result.score == 0
