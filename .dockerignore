@@ -9,7 +9,6 @@ __pycache__
 .pytest_cache
 .mypy_cache
 tests
-PLAN.md
 config.yaml
 cookies.txt
 *.log

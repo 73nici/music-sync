@@ -2,8 +2,6 @@
 
 CLI-Tool, das einen lokalen Musik-Ordner analysiert und fehlende Songs der dort vorhandenen Künstler von **YouTube Music** (mit YouTube als Fallback) herunterlädt.
 
-Details zur Architektur: siehe [PLAN.md](./PLAN.md).
-
 ---
 
 ## Features
